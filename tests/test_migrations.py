@@ -3,7 +3,7 @@ from pathlib import Path
 from obs_platform.database import Base
 
 
-def test_alembic_env_uses_async_engine_and_shared_settings() -> None:
+async def test_alembic_env_uses_async_engine_and_shared_settings() -> None:
     env_py = Path("migrations/env.py").read_text()
 
     assert "AsyncEngine" in env_py
@@ -14,7 +14,7 @@ def test_alembic_env_uses_async_engine_and_shared_settings() -> None:
     assert "postgresql+asyncpg://" not in env_py
 
 
-def test_initial_migration_is_empty_domain_bootstrap() -> None:
+async def test_initial_migration_is_empty_domain_bootstrap() -> None:
     migration_files = list(Path("migrations/versions").glob("*.py"))
 
     assert len(migration_files) == 1
@@ -24,7 +24,7 @@ def test_initial_migration_is_empty_domain_bootstrap() -> None:
     assert "pass" in migration
 
 
-def test_make_up_runs_migrations_before_compose_startup() -> None:
+async def test_make_up_runs_migrations_before_compose_startup() -> None:
     makefile = Path("Makefile").read_text()
 
     assert "include .env.example" in makefile
@@ -42,5 +42,5 @@ def test_make_up_runs_migrations_before_compose_startup() -> None:
     )
 
 
-def test_database_metadata_starts_without_domain_tables() -> None:
+async def test_database_metadata_starts_without_domain_tables() -> None:
     assert Base.metadata.tables == {}

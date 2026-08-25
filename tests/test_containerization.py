@@ -5,7 +5,7 @@ import pytest
 from obs_platform.config import Settings
 
 
-def test_dockerfile_uses_multi_stage_uv_build_and_single_uvicorn_process() -> None:
+async def test_dockerfile_uses_multi_stage_uv_build_and_single_uvicorn_process() -> None:
     dockerfile = Path("Dockerfile").read_text()
 
     assert "FROM python:3.12-slim AS builder" in dockerfile
@@ -17,7 +17,7 @@ def test_dockerfile_uses_multi_stage_uv_build_and_single_uvicorn_process() -> No
     assert "--reload" not in dockerfile
 
 
-def test_dockerignore_excludes_local_and_build_artifacts() -> None:
+async def test_dockerignore_excludes_local_and_build_artifacts() -> None:
     ignored = set(Path(".dockerignore").read_text().splitlines())
 
     expected = {
@@ -33,7 +33,7 @@ def test_dockerignore_excludes_local_and_build_artifacts() -> None:
     assert expected <= ignored
 
 
-def test_compose_api_service_is_production_shaped() -> None:
+async def test_compose_api_service_is_production_shaped() -> None:
     compose = Path("docker-compose.yml").read_text()
 
     assert "api:" in compose
@@ -52,11 +52,11 @@ def test_compose_api_service_is_production_shaped() -> None:
     )[0]
 
 
-def test_no_compose_override_file_exists() -> None:
+async def test_no_compose_override_file_exists() -> None:
     assert not Path("docker-compose.override.yml").exists()
 
 
-def test_host_native_settings_use_localhost_from_env_example(
+async def test_host_native_settings_use_localhost_from_env_example(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     for key in (

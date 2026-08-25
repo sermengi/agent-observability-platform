@@ -15,7 +15,7 @@ DB_ENV = {
 }
 
 
-def test_settings_requires_database_host(monkeypatch: pytest.MonkeyPatch) -> None:
+async def test_settings_requires_database_host(monkeypatch: pytest.MonkeyPatch) -> None:
     for key, value in DB_ENV.items():
         if key != "DB__HOST":
             monkeypatch.setenv(key, value)
@@ -31,7 +31,7 @@ def test_settings_requires_database_host(monkeypatch: pytest.MonkeyPatch) -> Non
     assert "db.host" in str(exc_info.value)
 
 
-def test_settings_loads_nested_environment_groups(
+async def test_settings_loads_nested_environment_groups(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     for key, value in DB_ENV.items():
@@ -51,7 +51,7 @@ def test_settings_loads_nested_environment_groups(
     assert settings.api.log_level == "debug"
 
 
-def test_env_example_documents_all_settings_variables() -> None:
+async def test_env_example_documents_all_settings_variables() -> None:
     env_example = Path(".env.example").read_text()
 
     expected_variables = {
@@ -69,7 +69,7 @@ def test_env_example_documents_all_settings_variables() -> None:
         assert f"{variable}=" in env_example
 
 
-def test_dotenv_is_ignored() -> None:
+async def test_dotenv_is_ignored() -> None:
     gitignore = Path(".gitignore").read_text()
 
     assert ".env" in gitignore.splitlines()
