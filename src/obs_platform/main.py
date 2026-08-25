@@ -5,9 +5,13 @@ from typing import Any
 from fastapi import FastAPI
 
 from obs_platform.config import Settings
-from obs_platform.database import DatabaseUnavailableError
+from obs_platform.database import (
+    DatabaseUnavailableError,
+    create_engine,
+    ping_database,
+    wait_for_database,
+)
 from obs_platform.database import check_database as check_database_settings
-from obs_platform.database import create_engine, ping_database, wait_for_database
 from obs_platform.routes import health, runs
 
 HealthCheck = Callable[[], Awaitable[None]]

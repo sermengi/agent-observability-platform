@@ -1,4 +1,5 @@
 import asyncio
+from typing import cast
 
 from sqlalchemy.ext.asyncio import AsyncEngine
 
@@ -31,7 +32,7 @@ async def test_wait_for_database_retries_until_connection_succeeds() -> None:
             raise OSError("database is still starting")
 
     await wait_for_database(
-        object(),
+        cast(AsyncEngine, object()),
         attempts=5,
         delay_seconds=0,
         ping=delayed_success,

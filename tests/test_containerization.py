@@ -5,14 +5,16 @@ import pytest
 from obs_platform.config import Settings
 
 
-async def test_dockerfile_uses_multi_stage_uv_build_and_single_uvicorn_process() -> None:
+async def test_dockerfile_uses_multi_stage_uv_build_and_single_uvicorn_process() -> (
+    None
+):
     dockerfile = Path("Dockerfile").read_text()
 
     assert "FROM python:3.12-slim AS builder" in dockerfile
     assert "FROM python:3.12-slim AS runtime" in dockerfile
     assert "--mount=type=cache,target=/root/.cache/uv" in dockerfile
     assert "COPY --from=builder" in dockerfile
-    assert "CMD [\"uvicorn\", \"obs_platform.main:app\"" in dockerfile
+    assert 'CMD ["uvicorn", "obs_platform.main:app"' in dockerfile
     assert "gunicorn" not in dockerfile
     assert "--reload" not in dockerfile
 
@@ -46,10 +48,13 @@ async def test_compose_api_service_is_production_shaped() -> None:
     assert "8000:8000" in compose
     assert "--reload" not in compose
     assert "../" not in compose
-    assert "volumes:" not in compose.split("api:", maxsplit=1)[1].split(
-        "volumes:",
-        maxsplit=1,
-    )[0]
+    assert (
+        "volumes:"
+        not in compose.split("api:", maxsplit=1)[1].split(
+            "volumes:",
+            maxsplit=1,
+        )[0]
+    )
 
 
 async def test_no_compose_override_file_exists() -> None:

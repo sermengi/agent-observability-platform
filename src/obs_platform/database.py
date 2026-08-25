@@ -3,8 +3,8 @@ from collections.abc import Awaitable, Callable
 from typing import Any
 
 from sqlalchemy import text
-from sqlalchemy.orm import DeclarativeBase
 from sqlalchemy.ext.asyncio import AsyncEngine, create_async_engine
+from sqlalchemy.orm import DeclarativeBase
 
 from obs_platform.config import DatabaseSettings
 

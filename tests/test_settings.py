@@ -5,7 +5,6 @@ from pydantic import ValidationError
 
 from obs_platform.config import APISettings, DatabaseSettings, Settings
 
-
 DB_ENV = {
     "DB__HOST": "localhost",
     "DB__PORT": "5432",

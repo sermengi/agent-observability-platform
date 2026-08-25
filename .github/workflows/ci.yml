@@ -1,0 +1,87 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  phase-0:
+    name: Phase 0 checks
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: observability
+          POSTGRES_PASSWORD: local-password
+          POSTGRES_DB: observability
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U observability -d observability"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 5
+
+    env:
+      DB__HOST: localhost
+      DB__PORT: "5432"
+      DB__USER: observability
+      DB__PASSWORD: local-password
+      DB__NAME: observability
+      API__HOST: 0.0.0.0
+      API__PORT: "8000"
+      API__LOG_LEVEL: info
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@v4
+        with:
+          enable-cache: true
+
+      - name: Install dependencies
+        run: uv sync --frozen
+
+      - name: Lint and format check
+        run: |
+          uv run ruff check .
+          uv run ruff format --check .
+
+      - name: Typecheck
+        run: uv run mypy src tests
+
+      - name: Test
+        run: uv run pytest
+
+      - name: Docker build and health check
+        run: |
+          docker build -t obs-platform-api:ci .
+          docker run -d \
+            --name obs-platform-api-ci \
+            --network host \
+            -e DB__HOST=localhost \
+            -e DB__PORT=5432 \
+            -e DB__USER=observability \
+            -e DB__PASSWORD=local-password \
+            -e DB__NAME=observability \
+            -e API__HOST=0.0.0.0 \
+            -e API__PORT=8000 \
+            -e API__LOG_LEVEL=info \
+            obs-platform-api:ci
+          for attempt in {1..10}; do
+            curl --fail http://localhost:8000/health && exit 0
+            sleep 2
+          done
+          docker logs obs-platform-api-ci
+          exit 1

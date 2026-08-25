@@ -1,14 +1,14 @@
 from fastapi import APIRouter, Request, status
 from fastapi.responses import JSONResponse
+from starlette.responses import Response
 
 from obs_platform.database import DatabaseUnavailableError
-
 
 router = APIRouter()
 
 
 @router.get("/health", response_model=None)
-async def health_check(request: Request):
+async def health_check(request: Request) -> dict[str, object] | Response:
     check_database = getattr(request.app.state, "check_database", None)
     if check_database is None:
         return JSONResponse(
