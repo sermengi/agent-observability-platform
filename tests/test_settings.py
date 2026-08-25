@@ -25,7 +25,7 @@ async def test_settings_requires_database_host(monkeypatch: pytest.MonkeyPatch) 
         monkeypatch.delenv(key, raising=False)
 
     with pytest.raises(ValidationError) as exc_info:
-        Settings()
+        Settings(_env_file=None)
 
     assert "db.host" in str(exc_info.value)
 
@@ -69,7 +69,12 @@ async def test_env_example_documents_all_settings_variables() -> None:
 
 
 async def test_dotenv_is_ignored() -> None:
-    gitignore = Path(".gitignore").read_text()
+    import subprocess
 
+    gitignore = Path(".gitignore").read_text()
     assert ".env" in gitignore.splitlines()
-    assert not Path(".env").exists()
+
+    tracked = subprocess.run(
+        ["git", "ls-files", ".env"], capture_output=True, text=True, check=True
+    ).stdout
+    assert tracked.strip() == ""
