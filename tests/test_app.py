@@ -2,13 +2,17 @@ import pytest
 from fastapi import APIRouter, FastAPI
 from httpx import ASGITransport, AsyncClient
 
+from obs_platform.database import DatabaseUnavailableError
 from obs_platform.main import create_app
 from obs_platform.routes import health, runs
 
 
 @pytest.mark.anyio
 async def test_health_returns_ok_without_database() -> None:
-    app = create_app()
+    async def check_database() -> None:
+        return None
+
+    app = create_app(check_database=check_database)
 
     async with AsyncClient(
         transport=ASGITransport(app=app),
@@ -17,7 +21,28 @@ async def test_health_returns_ok_without_database() -> None:
         response = await client.get("/health")
 
     assert response.status_code == 200
-    assert response.json() == {"status": "ok"}
+    assert response.json() == {"status": "ok", "checks": {"database": "ok"}}
+
+
+@pytest.mark.anyio
+async def test_health_returns_503_when_database_is_unreachable() -> None:
+    async def check_database() -> None:
+        raise DatabaseUnavailableError("database is unavailable")
+
+    app = create_app(check_database=check_database)
+
+    async with AsyncClient(
+        transport=ASGITransport(app=app),
+        base_url="http://testserver",
+    ) as client:
+        response = await client.get("/health")
+
+    assert response.status_code == 503
+    assert response.json() == {
+        "status": "error",
+        "checks": {"database": "error"},
+        "detail": "database is unavailable",
+    }
 
 
 @pytest.mark.anyio
