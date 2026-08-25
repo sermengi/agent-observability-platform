@@ -3,12 +3,17 @@ from collections.abc import Awaitable, Callable
 from typing import Any
 
 from sqlalchemy import text
+from sqlalchemy.orm import DeclarativeBase
 from sqlalchemy.ext.asyncio import AsyncEngine, create_async_engine
 
 from obs_platform.config import DatabaseSettings
 
 DatabasePing = Callable[[AsyncEngine], Awaitable[None]]
 Sleep = Callable[[float], Awaitable[Any]]
+
+
+class Base(DeclarativeBase):
+    pass
 
 
 class DatabaseUnavailableError(RuntimeError):
