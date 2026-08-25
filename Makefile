@@ -12,5 +12,6 @@ export
 
 up:
 	docker compose up -d --wait postgres
-	uv run alembic upgrade head
+	docker compose build api
+	docker compose run --rm api alembic upgrade head
 	docker compose up -d

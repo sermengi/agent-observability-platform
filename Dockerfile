@@ -23,5 +23,7 @@ WORKDIR /app
 
 COPY --from=builder /app/.venv /app/.venv
 COPY src ./src
+COPY alembic.ini ./alembic.ini
+COPY migrations ./migrations
 
 CMD ["uvicorn", "obs_platform.main:app", "--host", "0.0.0.0", "--port", "8000"]

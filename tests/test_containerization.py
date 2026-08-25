@@ -15,6 +15,8 @@ async def test_dockerfile_uses_multi_stage_uv_build_and_single_uvicorn_process()
     assert "--mount=type=cache,target=/root/.cache/uv" in dockerfile
     assert "COPY --from=builder" in dockerfile
     assert 'CMD ["uvicorn", "obs_platform.main:app"' in dockerfile
+    assert "COPY alembic.ini ./alembic.ini" in dockerfile
+    assert "COPY migrations ./migrations" in dockerfile
     assert "gunicorn" not in dockerfile
     assert "--reload" not in dockerfile
 

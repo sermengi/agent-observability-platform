@@ -32,14 +32,19 @@ async def test_make_up_runs_migrations_before_compose_startup() -> None:
     assert "export" in makefile
     assert "up:" in makefile
     assert "docker compose up -d --wait postgres" in makefile
-    assert "uv run alembic upgrade head" in makefile
+    assert "docker compose build api" in makefile
+    assert "docker compose run --rm api alembic upgrade head" in makefile
     assert "docker compose up -d" in makefile
     assert makefile.index("docker compose up -d --wait postgres") < makefile.index(
-        "uv run alembic upgrade head"
+        "docker compose build api"
     )
-    assert makefile.index("uv run alembic upgrade head") < makefile.rindex(
-        "docker compose up -d"
+    assert makefile.index("docker compose build api") < makefile.index(
+        "docker compose run --rm api alembic upgrade head"
     )
+    assert makefile.index(
+        "docker compose run --rm api alembic upgrade head"
+    ) < makefile.rindex("docker compose up -d")
+    assert "uv run alembic upgrade head" not in makefile
 
 
 async def test_database_metadata_starts_without_domain_tables() -> None:
