@@ -1,4 +1,26 @@
 services:
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    env_file:
+      - path: .env
+        required: false
+    environment:
+      DB__HOST: postgres
+      DB__PORT: ${DB__PORT:-5432}
+      DB__USER: ${DB__USER:-observability}
+      DB__PASSWORD: ${DB__PASSWORD:-local-password}
+      DB__NAME: ${DB__NAME:-observability}
+      API__HOST: ${API__HOST:-0.0.0.0}
+      API__PORT: ${API__PORT:-8000}
+      API__LOG_LEVEL: ${API__LOG_LEVEL:-info}
+    depends_on:
+      postgres:
+        condition: service_healthy
+    ports:
+      - "8000:8000"
+
   postgres:
     image: postgres:16
     environment:
