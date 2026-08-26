@@ -7,6 +7,12 @@ from obs_platform.telemetry.v1.enums import (
     RunEventType,
     RunStatus,
 )
+from obs_platform.telemetry.v1.fixture_loader import (
+    FIXTURE_MANIFEST,
+    FixtureNotFoundError,
+    load_all_fixtures,
+    load_fixture,
+)
 from obs_platform.telemetry.v1.models import (
     ErrorInfo,
     ExtendedRunEvent,
@@ -22,7 +28,9 @@ __all__ = [
     "ErrorInfo",
     "ExecutionStatus",
     "ExtendedRunEvent",
+    "FIXTURE_MANIFEST",
     "FinalResult",
+    "FixtureNotFoundError",
     "HITLInfo",
     "HITLState",
     "LLMCall",
@@ -32,4 +40,6 @@ __all__ = [
     "Span",
     "ToolCall",
     "UsageSummary",
+    "load_all_fixtures",
+    "load_fixture",
 ]
