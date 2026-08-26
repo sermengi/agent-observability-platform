@@ -24,9 +24,17 @@
       "started_at": "2026-08-26T10:30:00Z",
       "completed_at": "2026-08-26T10:30:07Z",
       "status": "success",
-      "input": {"asset_id": "PUMP-204", "symptom": "vibration"},
-      "output": {"document_count": 0, "answer_style": "hedged"},
-      "metadata": {"fixture": "retrieval_failure"},
+      "input": {
+        "asset_id": "PUMP-204",
+        "symptom": "vibration"
+      },
+      "output": {
+        "document_count": 0,
+        "answer_style": "hedged"
+      },
+      "metadata": {
+        "fixture": "retrieval_failure"
+      },
       "error": null
     }
   ],
@@ -36,8 +44,13 @@
       "span_id": "span-retrieval-root",
       "tool_name": "search_maintenance_docs",
       "sequence": 1,
-      "arguments": {"query": "PUMP-204 vibration FE-004"},
-      "result": {"documents": [], "count": 0},
+      "arguments": {
+        "query": "PUMP-204 vibration FE-004"
+      },
+      "result": {
+        "documents": [],
+        "count": 0
+      },
       "started_at": "2026-08-26T10:30:01Z",
       "completed_at": "2026-08-26T10:30:01.300000Z",
       "latency_ms": 300,
@@ -55,13 +68,17 @@
       "provider": "anthropic",
       "started_at": "2026-08-26T10:30:02Z",
       "completed_at": "2026-08-26T10:30:06Z",
-      "latency_ms": null,
-      "prompt_tokens": null,
-      "completion_tokens": null,
-      "total_tokens": null,
-      "estimated_cost_usd": null,
-      "input_payload": {"documents": []},
-      "output_payload": {"answer": "No matching maintenance documents were found."},
+      "latency_ms": 412,
+      "prompt_tokens": 4,
+      "completion_tokens": 14,
+      "total_tokens": 18,
+      "estimated_cost_usd": 0.000222,
+      "input_payload": {
+        "documents": []
+      },
+      "output_payload": {
+        "answer": "No matching maintenance documents were found."
+      },
       "status": "success",
       "error": null
     }
@@ -78,8 +95,8 @@
   "usage": {
     "total_llm_calls": 1,
     "total_tool_calls": 1,
-    "total_tokens": 0,
-    "total_estimated_cost_usd": 0.0,
+    "total_tokens": 18,
+    "total_estimated_cost_usd": 0.000222,
     "total_retries": 0
   },
   "final_result": {
@@ -88,7 +105,9 @@
       "summary": "No matching maintenance documents were found; inspect vibration trend manually.",
       "evidence_quality": "missing_retrieval_results"
     },
-    "source_references": ["tool-retrieval-docs"]
+    "source_references": [
+      "tool-retrieval-docs"
+    ]
   },
   "runtime_error": null
 }

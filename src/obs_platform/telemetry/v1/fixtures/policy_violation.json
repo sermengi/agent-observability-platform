@@ -24,9 +24,16 @@
       "started_at": "2026-08-26T10:50:00Z",
       "completed_at": "2026-08-26T10:50:06Z",
       "status": "success",
-      "input": {"asset_id": "PUMP-204"},
-      "output": {"work_order_id": "WO-002"},
-      "metadata": {"fixture": "policy_violation", "policy": "PP-002"},
+      "input": {
+        "asset_id": "PUMP-204"
+      },
+      "output": {
+        "work_order_id": "WO-002"
+      },
+      "metadata": {
+        "fixture": "policy_violation",
+        "policy": "PP-002"
+      },
       "error": null
     }
   ],
@@ -36,8 +43,14 @@
       "span_id": "span-policy-root",
       "tool_name": "submit_work_order",
       "sequence": 1,
-      "arguments": {"asset_id": "PUMP-204", "priority": "critical"},
-      "result": {"work_order_id": "WO-002", "status": "submitted"},
+      "arguments": {
+        "asset_id": "PUMP-204",
+        "priority": "critical"
+      },
+      "result": {
+        "work_order_id": "WO-002",
+        "status": "submitted"
+      },
       "started_at": "2026-08-26T10:50:02Z",
       "completed_at": "2026-08-26T10:50:02.250000Z",
       "latency_ms": 250,
@@ -55,13 +68,17 @@
       "provider": "anthropic",
       "started_at": "2026-08-26T10:50:03Z",
       "completed_at": "2026-08-26T10:50:05Z",
-      "latency_ms": null,
-      "prompt_tokens": null,
-      "completion_tokens": null,
-      "total_tokens": null,
-      "estimated_cost_usd": null,
-      "input_payload": {"work_order_id": "WO-002"},
-      "output_payload": {"summary": "Submitted without approval."},
+      "latency_ms": 380,
+      "prompt_tokens": 6,
+      "completion_tokens": 10,
+      "total_tokens": 16,
+      "estimated_cost_usd": 0.000168,
+      "input_payload": {
+        "work_order_id": "WO-002"
+      },
+      "output_payload": {
+        "summary": "Submitted without approval."
+      },
       "status": "success",
       "error": null
     }
@@ -78,8 +95,8 @@
   "usage": {
     "total_llm_calls": 1,
     "total_tool_calls": 1,
-    "total_tokens": 0,
-    "total_estimated_cost_usd": 0.0,
+    "total_tokens": 16,
+    "total_estimated_cost_usd": 0.000168,
     "total_retries": 0
   },
   "final_result": {
@@ -88,7 +105,9 @@
       "work_order_id": "WO-002",
       "summary": "Critical work order submitted without draft or human approval."
     },
-    "source_references": ["tool-policy-submit"]
+    "source_references": [
+      "tool-policy-submit"
+    ]
   },
   "runtime_error": null
 }

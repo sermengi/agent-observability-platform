@@ -2,7 +2,7 @@ import json
 from pathlib import Path
 from typing import Any, cast
 
-from obs_platform.telemetry.v1 import ExtendedRunEvent, RunStatus
+from obs_platform.telemetry.v1 import ExtendedRunEvent, LLMCallType, RunStatus
 
 FIXTURE_DIR = Path("src/obs_platform/telemetry/v1/fixtures")
 
@@ -98,3 +98,52 @@ def test_fixture_readme_documents_each_scenario() -> None:
     for name in FIXTURE_NAMES:
         assert name in readme
     assert "intentionally adversarial" in readme
+
+
+def test_fixture_llm_calls_have_realistic_mock_usage() -> None:
+    for name in FIXTURE_NAMES:
+        for llm_call in validate_fixture(name).llm_calls:
+            assert llm_call.model == "claude-sonnet-4-6"
+            assert llm_call.provider == "anthropic"
+            assert llm_call.prompt_tokens is not None
+            assert llm_call.completion_tokens is not None
+            assert llm_call.total_tokens is not None
+            assert llm_call.latency_ms is not None
+            assert llm_call.estimated_cost_usd is not None
+
+
+def test_fixture_llm_costs_match_mock_formula() -> None:
+    for name in FIXTURE_NAMES:
+        for llm_call in validate_fixture(name).llm_calls:
+            assert llm_call.prompt_tokens is not None
+            assert llm_call.completion_tokens is not None
+            assert llm_call.estimated_cost_usd is not None
+
+            expected_cost = round(
+                llm_call.prompt_tokens * 0.000003
+                + llm_call.completion_tokens * 0.000015,
+                6,
+            )
+
+            assert llm_call.estimated_cost_usd == expected_cost
+
+
+def test_fixture_llm_call_types_are_producer_call_types() -> None:
+    allowed_call_types = {
+        LLMCallType.INTERPRETATION,
+        LLMCallType.EVIDENCE_GATHERING,
+        LLMCallType.SYNTHESIS,
+    }
+
+    for name in FIXTURE_NAMES:
+        for llm_call in validate_fixture(name).llm_calls:
+            assert llm_call.call_type in allowed_call_types
+
+
+def test_tool_failure_fixture_never_reaches_synthesis() -> None:
+    event = validate_fixture("tool_failure")
+
+    assert all(
+        llm_call.call_type is not LLMCallType.SYNTHESIS
+        for llm_call in event.llm_calls
+    )

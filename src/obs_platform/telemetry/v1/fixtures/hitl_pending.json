@@ -24,9 +24,16 @@
       "started_at": "2026-08-26T11:00:00Z",
       "completed_at": null,
       "status": "success",
-      "input": {"asset_id": "PUMP-103", "fault_code": "FE-003"},
-      "output": {"checkpoint_id": "checkpoint-gs08-approval"},
-      "metadata": {"fixture": "hitl_pending"},
+      "input": {
+        "asset_id": "PUMP-103",
+        "fault_code": "FE-003"
+      },
+      "output": {
+        "checkpoint_id": "checkpoint-gs08-approval"
+      },
+      "metadata": {
+        "fixture": "hitl_pending"
+      },
       "error": null
     },
     {
@@ -37,8 +44,13 @@
       "started_at": "2026-08-26T11:00:01Z",
       "completed_at": "2026-08-26T11:00:05Z",
       "status": "success",
-      "input": {"asset_id": "PUMP-103"},
-      "output": {"fault_code": "FE-003", "policy_id": "PP-001"},
+      "input": {
+        "asset_id": "PUMP-103"
+      },
+      "output": {
+        "fault_code": "FE-003",
+        "policy_id": "PP-001"
+      },
       "metadata": null,
       "error": null
     }
@@ -49,8 +61,13 @@
       "span_id": "span-gs08-evidence",
       "tool_name": "resolve_asset",
       "sequence": 1,
-      "arguments": {"asset_id": "PUMP-103"},
-      "result": {"asset_id": "PUMP-103", "asset_type": "centrifugal_pump"},
+      "arguments": {
+        "asset_id": "PUMP-103"
+      },
+      "result": {
+        "asset_id": "PUMP-103",
+        "asset_type": "centrifugal_pump"
+      },
       "started_at": "2026-08-26T11:00:01Z",
       "completed_at": "2026-08-26T11:00:01.100000Z",
       "latency_ms": 100,
@@ -63,8 +80,13 @@
       "span_id": "span-gs08-evidence",
       "tool_name": "get_asset_status",
       "sequence": 2,
-      "arguments": {"asset_id": "PUMP-103"},
-      "result": {"status": "degraded", "fault_code": "FE-003"},
+      "arguments": {
+        "asset_id": "PUMP-103"
+      },
+      "result": {
+        "status": "degraded",
+        "fault_code": "FE-003"
+      },
       "started_at": "2026-08-26T11:00:02Z",
       "completed_at": "2026-08-26T11:00:02.150000Z",
       "latency_ms": 150,
@@ -77,8 +99,15 @@
       "span_id": "span-gs08-evidence",
       "tool_name": "get_maintenance_history",
       "sequence": 3,
-      "arguments": {"asset_id": "PUMP-103"},
-      "result": {"work_orders": ["WO-001"], "recurrences_30d": 3},
+      "arguments": {
+        "asset_id": "PUMP-103"
+      },
+      "result": {
+        "work_orders": [
+          "WO-001"
+        ],
+        "recurrences_30d": 3
+      },
       "started_at": "2026-08-26T11:00:03Z",
       "completed_at": "2026-08-26T11:00:03.200000Z",
       "latency_ms": 200,
@@ -91,8 +120,13 @@
       "span_id": "span-gs08-evidence",
       "tool_name": "get_plant_policy",
       "sequence": 4,
-      "arguments": {"policy_id": "PP-001"},
-      "result": {"policy_id": "PP-001", "recurrence_priority_floor": "high"},
+      "arguments": {
+        "policy_id": "PP-001"
+      },
+      "result": {
+        "policy_id": "PP-001",
+        "recurrence_priority_floor": "high"
+      },
       "started_at": "2026-08-26T11:00:04Z",
       "completed_at": "2026-08-26T11:00:04.100000Z",
       "latency_ms": 100,
@@ -105,8 +139,15 @@
       "span_id": "span-gs08-root",
       "tool_name": "create_work_order_draft",
       "sequence": 5,
-      "arguments": {"asset_id": "PUMP-103", "fault_code": "FE-003", "priority": "high"},
-      "result": {"draft_id": "draft-gs08-001", "priority": "high"},
+      "arguments": {
+        "asset_id": "PUMP-103",
+        "fault_code": "FE-003",
+        "priority": "high"
+      },
+      "result": {
+        "draft_id": "draft-gs08-001",
+        "priority": "high"
+      },
       "started_at": "2026-08-26T11:00:05Z",
       "completed_at": "2026-08-26T11:00:05.300000Z",
       "latency_ms": 300,
@@ -124,13 +165,18 @@
       "provider": "anthropic",
       "started_at": "2026-08-26T11:00:00.100000Z",
       "completed_at": "2026-08-26T11:00:00.800000Z",
-      "latency_ms": null,
-      "prompt_tokens": null,
-      "completion_tokens": null,
-      "total_tokens": null,
-      "estimated_cost_usd": null,
-      "input_payload": {"prompt": "Create high priority maintenance for PUMP-103"},
-      "output_payload": {"asset_id": "PUMP-103", "fault_code": "FE-003"},
+      "latency_ms": 388,
+      "prompt_tokens": 14,
+      "completion_tokens": 11,
+      "total_tokens": 25,
+      "estimated_cost_usd": 0.000207,
+      "input_payload": {
+        "prompt": "Create high priority maintenance for PUMP-103"
+      },
+      "output_payload": {
+        "asset_id": "PUMP-103",
+        "fault_code": "FE-003"
+      },
       "status": "success",
       "error": null
     }
@@ -153,8 +199,8 @@
   "usage": {
     "total_llm_calls": 1,
     "total_tool_calls": 5,
-    "total_tokens": 0,
-    "total_estimated_cost_usd": 0.0,
+    "total_tokens": 25,
+    "total_estimated_cost_usd": 0.000207,
     "total_retries": 0
   },
   "final_result": null,

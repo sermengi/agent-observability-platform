@@ -24,9 +24,15 @@
       "started_at": "2026-08-26T10:20:00Z",
       "completed_at": "2026-08-26T10:20:05Z",
       "status": "success",
-      "input": {"asset_id": "PUMP-101"},
-      "output": {"draft_id": "draft-PUMP-101-shortcut"},
-      "metadata": {"fixture": "trajectory_error"},
+      "input": {
+        "asset_id": "PUMP-101"
+      },
+      "output": {
+        "draft_id": "draft-PUMP-101-shortcut"
+      },
+      "metadata": {
+        "fixture": "trajectory_error"
+      },
       "error": null
     }
   ],
@@ -36,8 +42,14 @@
       "span_id": "span-trajectory-root",
       "tool_name": "create_work_order_draft",
       "sequence": 1,
-      "arguments": {"asset_id": "PUMP-101", "priority": "high"},
-      "result": {"draft_id": "draft-PUMP-101-shortcut", "status": "created"},
+      "arguments": {
+        "asset_id": "PUMP-101",
+        "priority": "high"
+      },
+      "result": {
+        "draft_id": "draft-PUMP-101-shortcut",
+        "status": "created"
+      },
       "started_at": "2026-08-26T10:20:02Z",
       "completed_at": "2026-08-26T10:20:02.200000Z",
       "latency_ms": 200,
@@ -55,13 +67,17 @@
       "provider": "anthropic",
       "started_at": "2026-08-26T10:20:03Z",
       "completed_at": "2026-08-26T10:20:04Z",
-      "latency_ms": null,
-      "prompt_tokens": null,
-      "completion_tokens": null,
-      "total_tokens": null,
-      "estimated_cost_usd": null,
-      "input_payload": {"draft_id": "draft-PUMP-101-shortcut"},
-      "output_payload": {"message": "Draft created."},
+      "latency_ms": 356,
+      "prompt_tokens": 10,
+      "completion_tokens": 7,
+      "total_tokens": 17,
+      "estimated_cost_usd": 0.000135,
+      "input_payload": {
+        "draft_id": "draft-PUMP-101-shortcut"
+      },
+      "output_payload": {
+        "message": "Draft created."
+      },
       "status": "success",
       "error": null
     }
@@ -78,8 +94,8 @@
   "usage": {
     "total_llm_calls": 1,
     "total_tool_calls": 1,
-    "total_tokens": 0,
-    "total_estimated_cost_usd": 0.0,
+    "total_tokens": 17,
+    "total_estimated_cost_usd": 0.000135,
     "total_retries": 0
   },
   "final_result": {
@@ -88,7 +104,9 @@
       "draft_id": "draft-PUMP-101-shortcut",
       "summary": "Draft created without evidence gathering."
     },
-    "source_references": ["tool-trajectory-draft"]
+    "source_references": [
+      "tool-trajectory-draft"
+    ]
   },
   "runtime_error": null
 }

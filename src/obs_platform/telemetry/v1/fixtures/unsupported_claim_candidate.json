@@ -24,9 +24,15 @@
       "started_at": "2026-08-26T10:40:00Z",
       "completed_at": "2026-08-26T10:40:08Z",
       "status": "success",
-      "input": {"asset_id": "PUMP-101"},
-      "output": {"summary": "unsupported seal replacement claim included"},
-      "metadata": {"fixture": "unsupported_claim_candidate"},
+      "input": {
+        "asset_id": "PUMP-101"
+      },
+      "output": {
+        "summary": "unsupported seal replacement claim included"
+      },
+      "metadata": {
+        "fixture": "unsupported_claim_candidate"
+      },
       "error": null
     }
   ],
@@ -36,8 +42,13 @@
       "span_id": "span-unsupported-root",
       "tool_name": "get_asset_status",
       "sequence": 1,
-      "arguments": {"asset_id": "PUMP-101"},
-      "result": {"status": "running", "fault_code": "FE-002"},
+      "arguments": {
+        "asset_id": "PUMP-101"
+      },
+      "result": {
+        "status": "running",
+        "fault_code": "FE-002"
+      },
       "started_at": "2026-08-26T10:40:01Z",
       "completed_at": "2026-08-26T10:40:01.200000Z",
       "latency_ms": 200,
@@ -50,8 +61,15 @@
       "span_id": "span-unsupported-root",
       "tool_name": "get_maintenance_history",
       "sequence": 2,
-      "arguments": {"asset_id": "PUMP-101"},
-      "result": {"work_orders": ["WO-001"], "last_action": "bearing inspection"},
+      "arguments": {
+        "asset_id": "PUMP-101"
+      },
+      "result": {
+        "work_orders": [
+          "WO-001"
+        ],
+        "last_action": "bearing inspection"
+      },
       "started_at": "2026-08-26T10:40:02Z",
       "completed_at": "2026-08-26T10:40:02.200000Z",
       "latency_ms": 200,
@@ -69,13 +87,20 @@
       "provider": "anthropic",
       "started_at": "2026-08-26T10:40:03Z",
       "completed_at": "2026-08-26T10:40:07Z",
-      "latency_ms": null,
-      "prompt_tokens": null,
-      "completion_tokens": null,
-      "total_tokens": null,
-      "estimated_cost_usd": null,
-      "input_payload": {"evidence": ["FE-002", "bearing inspection"]},
-      "output_payload": {"claim": "Seal was replaced yesterday."},
+      "latency_ms": 380,
+      "prompt_tokens": 11,
+      "completion_tokens": 10,
+      "total_tokens": 21,
+      "estimated_cost_usd": 0.000183,
+      "input_payload": {
+        "evidence": [
+          "FE-002",
+          "bearing inspection"
+        ]
+      },
+      "output_payload": {
+        "claim": "Seal was replaced yesterday."
+      },
       "status": "success",
       "error": null
     }
@@ -92,8 +117,8 @@
   "usage": {
     "total_llm_calls": 1,
     "total_tool_calls": 2,
-    "total_tokens": 0,
-    "total_estimated_cost_usd": 0.0,
+    "total_tokens": 21,
+    "total_estimated_cost_usd": 0.000183,
     "total_retries": 0
   },
   "final_result": {
@@ -102,7 +127,10 @@
       "summary": "PUMP-101 is running, and its seal was replaced yesterday.",
       "unsupported_claim": "seal was replaced yesterday"
     },
-    "source_references": ["tool-unsupported-status", "tool-unsupported-history"]
+    "source_references": [
+      "tool-unsupported-status",
+      "tool-unsupported-history"
+    ]
   },
   "runtime_error": null
 }
