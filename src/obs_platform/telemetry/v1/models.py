@@ -1,7 +1,7 @@
 from datetime import UTC, datetime
-from typing import Any, Literal
+from typing import Annotated, Any, Literal, Self
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from obs_platform.telemetry.v1.enums import (
     ExecutionStatus,
@@ -11,9 +11,31 @@ from obs_platform.telemetry.v1.enums import (
     RunStatus,
 )
 
+StableID = Annotated[str, Field(min_length=1, max_length=256)]
+
 
 class TelemetryModel(BaseModel):
     model_config = ConfigDict(extra="ignore")
+
+    @field_validator(
+        "run_id",
+        "span_id",
+        "parent_span_id",
+        "tool_call_id",
+        "llm_call_id",
+        mode="before",
+        check_fields=False,
+    )
+    @classmethod
+    def strip_and_validate_ids(cls, value: object) -> object:
+        if value is None:
+            return value
+        if isinstance(value, str):
+            stripped = value.strip()
+            if stripped == "":
+                raise ValueError("ID fields must not be empty or whitespace only")
+            return stripped
+        return value
 
     @field_validator("*", mode="after")
     @classmethod
@@ -34,8 +56,8 @@ class ErrorInfo(TelemetryModel):
 
 
 class Span(TelemetryModel):
-    span_id: str
-    parent_span_id: str | None
+    span_id: StableID
+    parent_span_id: StableID | None
     name: str
     sequence: int
     started_at: datetime
@@ -48,8 +70,8 @@ class Span(TelemetryModel):
 
 
 class ToolCall(TelemetryModel):
-    tool_call_id: str
-    span_id: str
+    tool_call_id: StableID
+    span_id: StableID
     tool_name: str
     sequence: int
     arguments: dict[str, Any]
@@ -63,8 +85,8 @@ class ToolCall(TelemetryModel):
 
 
 class LLMCall(TelemetryModel):
-    llm_call_id: str
-    span_id: str
+    llm_call_id: StableID
+    span_id: StableID
     call_type: LLMCallType
     model: str
     provider: str
@@ -107,7 +129,7 @@ class FinalResult(TelemetryModel):
 class ExtendedRunEvent(TelemetryModel):
     schema_version: Literal["1.0"]
     event_type: RunEventType
-    run_id: str
+    run_id: StableID
     agent_name: str
     agent_version: str
     prompt_version: str
@@ -128,3 +150,54 @@ class ExtendedRunEvent(TelemetryModel):
     usage: UsageSummary
     final_result: FinalResult | None
     runtime_error: ErrorInfo | None
+
+    @model_validator(mode="after")
+    def validate_child_ids_and_references(self) -> Self:
+        span_ids = self._require_unique_ids(
+            [span.span_id for span in self.spans],
+            "span_id",
+        )
+        self._require_unique_ids(
+            [tool_call.tool_call_id for tool_call in self.tool_calls],
+            "tool_call_id",
+        )
+        self._require_unique_ids(
+            [llm_call.llm_call_id for llm_call in self.llm_calls],
+            "llm_call_id",
+        )
+
+        for span in self.spans:
+            if span.parent_span_id is not None and span.parent_span_id not in span_ids:
+                raise ValueError(
+                    f"span.parent_span_id references missing span_id: "
+                    f"{span.parent_span_id}"
+                )
+
+        for tool_call in self.tool_calls:
+            if tool_call.span_id not in span_ids:
+                raise ValueError(
+                    f"tool_call.span_id references missing span_id: "
+                    f"{tool_call.span_id}"
+                )
+
+        for llm_call in self.llm_calls:
+            if llm_call.span_id not in span_ids:
+                raise ValueError(
+                    f"llm_call.span_id references missing span_id: {llm_call.span_id}"
+                )
+
+        return self
+
+    @staticmethod
+    def _require_unique_ids(ids: list[str], field_name: str) -> set[str]:
+        seen: set[str] = set()
+        duplicates: set[str] = set()
+        for item_id in ids:
+            if item_id in seen:
+                duplicates.add(item_id)
+            seen.add(item_id)
+
+        if duplicates:
+            raise ValueError(f"duplicate {field_name} values: {sorted(duplicates)}")
+
+        return seen
