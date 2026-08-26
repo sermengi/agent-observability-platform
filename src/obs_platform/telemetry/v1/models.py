@@ -152,7 +152,12 @@ class ExtendedRunEvent(TelemetryModel):
     runtime_error: ErrorInfo | None
 
     @model_validator(mode="after")
-    def validate_child_ids_and_references(self) -> Self:
+    def validate_run_consistency(self) -> Self:
+        self._validate_child_ids_and_references()
+        self._validate_lifecycle()
+        return self
+
+    def _validate_child_ids_and_references(self) -> None:
         span_ids = self._require_unique_ids(
             [span.span_id for span in self.spans],
             "span_id",
@@ -186,7 +191,75 @@ class ExtendedRunEvent(TelemetryModel):
                     f"llm_call.span_id references missing span_id: {llm_call.span_id}"
                 )
 
-        return self
+    def _validate_lifecycle(self) -> None:
+        if self.event_type is RunEventType.RUN_AWAITING_APPROVAL:
+            self._validate_awaiting_approval_lifecycle()
+            return
+
+        self._validate_final_lifecycle()
+
+    def _validate_awaiting_approval_lifecycle(self) -> None:
+        if self.completed_at is not None:
+            raise ValueError("completed_at must be None for awaiting approval events")
+        if self.status is not RunStatus.AWAITING_APPROVAL:
+            raise ValueError(
+                "awaiting approval events must use awaiting approval status"
+            )
+        if self.final_result is not None:
+            raise ValueError("final_result must be None for awaiting approval events")
+        if self.runtime_error is not None:
+            raise ValueError("runtime_error must be None for awaiting approval events")
+        if self.hitl.required is not True or self.hitl.state is not HITLState.PENDING:
+            raise ValueError("awaiting approval events require pending HITL state")
+        if self.hitl.pending_action is None:
+            raise ValueError("pending_action is required for pending HITL state")
+
+    def _validate_final_lifecycle(self) -> None:
+        if self.completed_at is None:
+            raise ValueError("completed_at is required for final events")
+        if self.hitl.state is HITLState.PENDING:
+            raise ValueError(
+                "pending HITL state is only valid for awaiting approval events"
+            )
+        if self.hitl.pending_action is not None:
+            raise ValueError("pending_action must be None for final events")
+
+        if self.status is RunStatus.SUCCESS:
+            if self.final_result is None:
+                raise ValueError("final_result is required for successful final events")
+            if self.runtime_error is not None:
+                raise ValueError(
+                    "runtime_error must be None for successful final events"
+                )
+            if (
+                self.hitl.required is False
+                and self.hitl.state is not HITLState.NOT_REQUIRED
+            ):
+                raise ValueError(
+                    "non-HITL final events require not_required HITL state"
+                )
+            if self.hitl.required is True and self.hitl.state not in {
+                HITLState.APPROVED,
+                HITLState.REJECTED,
+            }:
+                raise ValueError(
+                    "HITL final events require approved or rejected HITL state"
+                )
+            return
+
+        if self.status in {RunStatus.TOOL_ERROR, RunStatus.RUNTIME_ERROR}:
+            if self.final_result is not None:
+                raise ValueError("final_result must be None for error final events")
+            if self.runtime_error is None:
+                raise ValueError("runtime_error is required for error final events")
+            if (
+                self.hitl.required is not False
+                or self.hitl.state is not HITLState.NOT_REQUIRED
+            ):
+                raise ValueError("error final events require not_required HITL state")
+            return
+
+        raise ValueError("awaiting approval status is not valid for final events")
 
     @staticmethod
     def _require_unique_ids(ids: list[str], field_name: str) -> set[str]:

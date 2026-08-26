@@ -342,3 +342,113 @@ def test_child_references_must_point_to_spans(
 ) -> None:
     with pytest.raises(ValidationError, match="span_id"):
         ExtendedRunEvent.model_validate(minimal_event_kwargs(**overrides))
+
+
+@pytest.mark.parametrize(
+    "overrides",
+    [
+        {"event_type": RunEventType.RUN_FINAL, "completed_at": None},
+        {
+            "event_type": RunEventType.RUN_AWAITING_APPROVAL,
+            "status": RunStatus.AWAITING_APPROVAL,
+            "completed_at": aware_now(),
+            "final_result": None,
+            "hitl": HITLInfo(
+                required=True,
+                state=HITLState.PENDING,
+                checkpoint_id="checkpoint-001",
+                decision=None,
+                requested_at=aware_now(),
+                decided_at=None,
+                pending_action={"draft": {"priority": "high"}},
+            ),
+        },
+    ],
+)
+def test_completed_at_matches_event_type(overrides: dict[str, object]) -> None:
+    with pytest.raises(ValidationError, match="completed_at"):
+        ExtendedRunEvent.model_validate(minimal_event_kwargs(**overrides))
+
+
+def test_successful_final_run_requires_final_result() -> None:
+    with pytest.raises(ValidationError, match="final_result"):
+        ExtendedRunEvent.model_validate(minimal_event_kwargs(final_result=None))
+
+
+@pytest.mark.parametrize("status", [RunStatus.TOOL_ERROR, RunStatus.RUNTIME_ERROR])
+def test_error_final_run_requires_runtime_error(status: RunStatus) -> None:
+    with pytest.raises(ValidationError, match="runtime_error"):
+        ExtendedRunEvent.model_validate(
+            minimal_event_kwargs(status=status, final_result=None)
+        )
+
+
+def test_pending_hitl_requires_pending_action() -> None:
+    with pytest.raises(ValidationError, match="pending_action"):
+        ExtendedRunEvent.model_validate(
+            minimal_event_kwargs(
+                event_type=RunEventType.RUN_AWAITING_APPROVAL,
+                status=RunStatus.AWAITING_APPROVAL,
+                completed_at=None,
+                final_result=None,
+                hitl=HITLInfo(
+                    required=True,
+                    state=HITLState.PENDING,
+                    checkpoint_id="checkpoint-001",
+                    decision=None,
+                    requested_at=aware_now(),
+                    decided_at=None,
+                    pending_action=None,
+                ),
+            )
+        )
+
+
+def test_awaiting_approval_requires_pending_status_and_hitl_state() -> None:
+    with pytest.raises(ValidationError, match="awaiting approval"):
+        ExtendedRunEvent.model_validate(
+            minimal_event_kwargs(
+                event_type=RunEventType.RUN_AWAITING_APPROVAL,
+                status=RunStatus.SUCCESS,
+                completed_at=None,
+                final_result=None,
+                hitl=HITLInfo(
+                    required=True,
+                    state=HITLState.PENDING,
+                    checkpoint_id="checkpoint-001",
+                    decision=None,
+                    requested_at=aware_now(),
+                    decided_at=None,
+                    pending_action={"draft": {"priority": "high"}},
+                ),
+            )
+        )
+
+
+def test_final_hitl_approved_run_requires_success_status_and_final_result() -> None:
+    event = ExtendedRunEvent.model_validate(
+        minimal_event_kwargs(
+            hitl=HITLInfo(
+                required=True,
+                state=HITLState.APPROVED,
+                checkpoint_id="checkpoint-001",
+                decision="approve",
+                requested_at=aware_now(),
+                decided_at=aware_now(),
+                pending_action=None,
+            ),
+            resume_count=1,
+        )
+    )
+
+    assert event.status is RunStatus.SUCCESS
+    assert event.hitl.required is True
+    assert event.hitl.state is HITLState.APPROVED
+
+
+def test_no_hitl_run_keeps_non_nullable_not_required_snapshot() -> None:
+    event = ExtendedRunEvent.model_validate(minimal_event_kwargs())
+
+    assert event.hitl.required is False
+    assert event.hitl.state is HITLState.NOT_REQUIRED
+    assert event.hitl.pending_action is None
