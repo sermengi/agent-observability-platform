@@ -1,0 +1,94 @@
+{
+  "schema_version": "1.0",
+  "event_type": "run_final",
+  "run_id": "run-trajectory-001",
+  "agent_name": "maintenance-agent",
+  "agent_version": "0.1.0",
+  "prompt_version": "prompt-debug-001",
+  "environment": "fixture",
+  "raw_input": "Create a repair draft for PUMP-101.",
+  "normalized_input": "Draft repair work order for PUMP-101",
+  "scenario_id": "GS-DEBUG-TRAJ-01",
+  "started_at": "2026-08-26T10:20:00Z",
+  "completed_at": "2026-08-26T10:20:05Z",
+  "status": "success",
+  "execution_latency_ms": 5000,
+  "wall_clock_duration_ms": 5000,
+  "resume_count": 0,
+  "spans": [
+    {
+      "span_id": "span-trajectory-root",
+      "parent_span_id": null,
+      "name": "operator-defined shortcut path",
+      "sequence": 1,
+      "started_at": "2026-08-26T10:20:00Z",
+      "completed_at": "2026-08-26T10:20:05Z",
+      "status": "success",
+      "input": {"asset_id": "PUMP-101"},
+      "output": {"draft_id": "draft-PUMP-101-shortcut"},
+      "metadata": {"fixture": "trajectory_error"},
+      "error": null
+    }
+  ],
+  "tool_calls": [
+    {
+      "tool_call_id": "tool-trajectory-draft",
+      "span_id": "span-trajectory-root",
+      "tool_name": "create_work_order_draft",
+      "sequence": 1,
+      "arguments": {"asset_id": "PUMP-101", "priority": "high"},
+      "result": {"draft_id": "draft-PUMP-101-shortcut", "status": "created"},
+      "started_at": "2026-08-26T10:20:02Z",
+      "completed_at": "2026-08-26T10:20:02.200000Z",
+      "latency_ms": 200,
+      "retry_count": 0,
+      "status": "success",
+      "error": null
+    }
+  ],
+  "llm_calls": [
+    {
+      "llm_call_id": "llm-trajectory-synthesis",
+      "span_id": "span-trajectory-root",
+      "call_type": "synthesis",
+      "model": "claude-sonnet-4-6",
+      "provider": "anthropic",
+      "started_at": "2026-08-26T10:20:03Z",
+      "completed_at": "2026-08-26T10:20:04Z",
+      "latency_ms": null,
+      "prompt_tokens": null,
+      "completion_tokens": null,
+      "total_tokens": null,
+      "estimated_cost_usd": null,
+      "input_payload": {"draft_id": "draft-PUMP-101-shortcut"},
+      "output_payload": {"message": "Draft created."},
+      "status": "success",
+      "error": null
+    }
+  ],
+  "hitl": {
+    "required": false,
+    "state": "not_required",
+    "checkpoint_id": null,
+    "decision": null,
+    "requested_at": null,
+    "decided_at": null,
+    "pending_action": null
+  },
+  "usage": {
+    "total_llm_calls": 1,
+    "total_tool_calls": 1,
+    "total_tokens": 0,
+    "total_estimated_cost_usd": 0.0,
+    "total_retries": 0
+  },
+  "final_result": {
+    "output": {
+      "asset_id": "PUMP-101",
+      "draft_id": "draft-PUMP-101-shortcut",
+      "summary": "Draft created without evidence gathering."
+    },
+    "source_references": ["tool-trajectory-draft"]
+  },
+  "runtime_error": null
+}

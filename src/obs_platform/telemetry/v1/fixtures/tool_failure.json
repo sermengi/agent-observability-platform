@@ -1,0 +1,102 @@
+{
+  "schema_version": "1.0",
+  "event_type": "run_final",
+  "run_id": "run-tool-failure-001",
+  "agent_name": "maintenance-agent",
+  "agent_version": "0.1.0",
+  "prompt_version": "prompt-debug-001",
+  "environment": "fixture",
+  "raw_input": "Check current status for PUMP-204.",
+  "normalized_input": "Inspect PUMP-204 status",
+  "scenario_id": null,
+  "started_at": "2026-08-26T10:10:00Z",
+  "completed_at": "2026-08-26T10:10:03Z",
+  "status": "tool_error",
+  "execution_latency_ms": 3000,
+  "wall_clock_duration_ms": 3000,
+  "resume_count": 0,
+  "spans": [
+    {
+      "span_id": "span-tool-failure-root",
+      "parent_span_id": null,
+      "name": "status lookup",
+      "sequence": 1,
+      "started_at": "2026-08-26T10:10:00Z",
+      "completed_at": "2026-08-26T10:10:03Z",
+      "status": "failure",
+      "input": {"asset_id": "PUMP-204"},
+      "output": null,
+      "metadata": {"fixture": "tool_failure"},
+      "error": {
+        "category": "tool",
+        "code": "ASSET_STATUS_TIMEOUT",
+        "message": "get_asset_status timed out for PUMP-204",
+        "failed_component": "get_asset_status"
+      }
+    }
+  ],
+  "tool_calls": [
+    {
+      "tool_call_id": "tool-failure-status",
+      "span_id": "span-tool-failure-root",
+      "tool_name": "get_asset_status",
+      "sequence": 1,
+      "arguments": {"asset_id": "PUMP-204"},
+      "result": null,
+      "started_at": "2026-08-26T10:10:01Z",
+      "completed_at": "2026-08-26T10:10:03Z",
+      "latency_ms": 2000,
+      "retry_count": 1,
+      "status": "failure",
+      "error": {
+        "category": "timeout",
+        "code": "ASSET_STATUS_TIMEOUT",
+        "message": "Status service did not respond before deadline.",
+        "failed_component": "get_asset_status"
+      }
+    }
+  ],
+  "llm_calls": [
+    {
+      "llm_call_id": "llm-tool-failure-interpret",
+      "span_id": "span-tool-failure-root",
+      "call_type": "interpretation",
+      "model": "claude-sonnet-4-6",
+      "provider": "anthropic",
+      "started_at": "2026-08-26T10:10:00.100000Z",
+      "completed_at": "2026-08-26T10:10:00.700000Z",
+      "latency_ms": null,
+      "prompt_tokens": null,
+      "completion_tokens": null,
+      "total_tokens": null,
+      "estimated_cost_usd": null,
+      "input_payload": {"prompt": "Check current status for PUMP-204"},
+      "output_payload": {"asset_id": "PUMP-204", "needed_tool": "get_asset_status"},
+      "status": "success",
+      "error": null
+    }
+  ],
+  "hitl": {
+    "required": false,
+    "state": "not_required",
+    "checkpoint_id": null,
+    "decision": null,
+    "requested_at": null,
+    "decided_at": null,
+    "pending_action": null
+  },
+  "usage": {
+    "total_llm_calls": 1,
+    "total_tool_calls": 1,
+    "total_tokens": 0,
+    "total_estimated_cost_usd": 0.0,
+    "total_retries": 1
+  },
+  "final_result": null,
+  "runtime_error": {
+    "category": "tool",
+    "code": "ASSET_STATUS_TIMEOUT",
+    "message": "Run stopped because get_asset_status failed.",
+    "failed_component": "get_asset_status"
+  }
+}

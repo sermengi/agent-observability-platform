@@ -1,0 +1,162 @@
+{
+  "schema_version": "1.0",
+  "event_type": "run_awaiting_approval",
+  "run_id": "run-gs08-001",
+  "agent_name": "maintenance-agent",
+  "agent_version": "0.1.0",
+  "prompt_version": "prompt-debug-001",
+  "environment": "fixture",
+  "raw_input": "Create high priority maintenance for recurring FE-003 on PUMP-103.",
+  "normalized_input": "Create high priority maintenance for PUMP-103 FE-003 recurrence",
+  "scenario_id": "GS-08",
+  "started_at": "2026-08-26T11:00:00Z",
+  "completed_at": null,
+  "status": "awaiting_approval",
+  "execution_latency_ms": null,
+  "wall_clock_duration_ms": null,
+  "resume_count": 0,
+  "spans": [
+    {
+      "span_id": "span-gs08-root",
+      "parent_span_id": null,
+      "name": "GS-08 work order orchestration",
+      "sequence": 1,
+      "started_at": "2026-08-26T11:00:00Z",
+      "completed_at": null,
+      "status": "success",
+      "input": {"asset_id": "PUMP-103", "fault_code": "FE-003"},
+      "output": {"checkpoint_id": "checkpoint-gs08-approval"},
+      "metadata": {"fixture": "hitl_pending"},
+      "error": null
+    },
+    {
+      "span_id": "span-gs08-evidence",
+      "parent_span_id": "span-gs08-root",
+      "name": "policy and evidence gathering",
+      "sequence": 2,
+      "started_at": "2026-08-26T11:00:01Z",
+      "completed_at": "2026-08-26T11:00:05Z",
+      "status": "success",
+      "input": {"asset_id": "PUMP-103"},
+      "output": {"fault_code": "FE-003", "policy_id": "PP-001"},
+      "metadata": null,
+      "error": null
+    }
+  ],
+  "tool_calls": [
+    {
+      "tool_call_id": "tool-gs08-resolve",
+      "span_id": "span-gs08-evidence",
+      "tool_name": "resolve_asset",
+      "sequence": 1,
+      "arguments": {"asset_id": "PUMP-103"},
+      "result": {"asset_id": "PUMP-103", "asset_type": "centrifugal_pump"},
+      "started_at": "2026-08-26T11:00:01Z",
+      "completed_at": "2026-08-26T11:00:01.100000Z",
+      "latency_ms": 100,
+      "retry_count": 0,
+      "status": "success",
+      "error": null
+    },
+    {
+      "tool_call_id": "tool-gs08-status",
+      "span_id": "span-gs08-evidence",
+      "tool_name": "get_asset_status",
+      "sequence": 2,
+      "arguments": {"asset_id": "PUMP-103"},
+      "result": {"status": "degraded", "fault_code": "FE-003"},
+      "started_at": "2026-08-26T11:00:02Z",
+      "completed_at": "2026-08-26T11:00:02.150000Z",
+      "latency_ms": 150,
+      "retry_count": 0,
+      "status": "success",
+      "error": null
+    },
+    {
+      "tool_call_id": "tool-gs08-history",
+      "span_id": "span-gs08-evidence",
+      "tool_name": "get_maintenance_history",
+      "sequence": 3,
+      "arguments": {"asset_id": "PUMP-103"},
+      "result": {"work_orders": ["WO-001"], "recurrences_30d": 3},
+      "started_at": "2026-08-26T11:00:03Z",
+      "completed_at": "2026-08-26T11:00:03.200000Z",
+      "latency_ms": 200,
+      "retry_count": 0,
+      "status": "success",
+      "error": null
+    },
+    {
+      "tool_call_id": "tool-gs08-policy",
+      "span_id": "span-gs08-evidence",
+      "tool_name": "get_plant_policy",
+      "sequence": 4,
+      "arguments": {"policy_id": "PP-001"},
+      "result": {"policy_id": "PP-001", "recurrence_priority_floor": "high"},
+      "started_at": "2026-08-26T11:00:04Z",
+      "completed_at": "2026-08-26T11:00:04.100000Z",
+      "latency_ms": 100,
+      "retry_count": 0,
+      "status": "success",
+      "error": null
+    },
+    {
+      "tool_call_id": "tool-gs08-draft",
+      "span_id": "span-gs08-root",
+      "tool_name": "create_work_order_draft",
+      "sequence": 5,
+      "arguments": {"asset_id": "PUMP-103", "fault_code": "FE-003", "priority": "high"},
+      "result": {"draft_id": "draft-gs08-001", "priority": "high"},
+      "started_at": "2026-08-26T11:00:05Z",
+      "completed_at": "2026-08-26T11:00:05.300000Z",
+      "latency_ms": 300,
+      "retry_count": 0,
+      "status": "success",
+      "error": null
+    }
+  ],
+  "llm_calls": [
+    {
+      "llm_call_id": "llm-gs08-interpret",
+      "span_id": "span-gs08-root",
+      "call_type": "interpretation",
+      "model": "claude-sonnet-4-6",
+      "provider": "anthropic",
+      "started_at": "2026-08-26T11:00:00.100000Z",
+      "completed_at": "2026-08-26T11:00:00.800000Z",
+      "latency_ms": null,
+      "prompt_tokens": null,
+      "completion_tokens": null,
+      "total_tokens": null,
+      "estimated_cost_usd": null,
+      "input_payload": {"prompt": "Create high priority maintenance for PUMP-103"},
+      "output_payload": {"asset_id": "PUMP-103", "fault_code": "FE-003"},
+      "status": "success",
+      "error": null
+    }
+  ],
+  "hitl": {
+    "required": true,
+    "state": "pending",
+    "checkpoint_id": "checkpoint-gs08-approval",
+    "decision": null,
+    "requested_at": "2026-08-26T11:00:06Z",
+    "decided_at": null,
+    "pending_action": {
+      "tool_name": "submit_work_order",
+      "draft_id": "draft-gs08-001",
+      "asset_id": "PUMP-103",
+      "priority": "high",
+      "policy_id": "PP-001"
+    }
+  },
+  "usage": {
+    "total_llm_calls": 1,
+    "total_tool_calls": 5,
+    "total_tokens": 0,
+    "total_estimated_cost_usd": 0.0,
+    "total_retries": 0
+  },
+  "final_result": null,
+  "runtime_error": null
+}

@@ -1,0 +1,108 @@
+{
+  "schema_version": "1.0",
+  "event_type": "run_final",
+  "run_id": "run-unsupported-001",
+  "agent_name": "maintenance-agent",
+  "agent_version": "0.1.0",
+  "prompt_version": "prompt-debug-001",
+  "environment": "fixture",
+  "raw_input": "Summarize condition for PUMP-101.",
+  "normalized_input": "Summarize PUMP-101 condition",
+  "scenario_id": null,
+  "started_at": "2026-08-26T10:40:00Z",
+  "completed_at": "2026-08-26T10:40:08Z",
+  "status": "success",
+  "execution_latency_ms": 8000,
+  "wall_clock_duration_ms": 8000,
+  "resume_count": 0,
+  "spans": [
+    {
+      "span_id": "span-unsupported-root",
+      "parent_span_id": null,
+      "name": "condition summary",
+      "sequence": 1,
+      "started_at": "2026-08-26T10:40:00Z",
+      "completed_at": "2026-08-26T10:40:08Z",
+      "status": "success",
+      "input": {"asset_id": "PUMP-101"},
+      "output": {"summary": "unsupported seal replacement claim included"},
+      "metadata": {"fixture": "unsupported_claim_candidate"},
+      "error": null
+    }
+  ],
+  "tool_calls": [
+    {
+      "tool_call_id": "tool-unsupported-status",
+      "span_id": "span-unsupported-root",
+      "tool_name": "get_asset_status",
+      "sequence": 1,
+      "arguments": {"asset_id": "PUMP-101"},
+      "result": {"status": "running", "fault_code": "FE-002"},
+      "started_at": "2026-08-26T10:40:01Z",
+      "completed_at": "2026-08-26T10:40:01.200000Z",
+      "latency_ms": 200,
+      "retry_count": 0,
+      "status": "success",
+      "error": null
+    },
+    {
+      "tool_call_id": "tool-unsupported-history",
+      "span_id": "span-unsupported-root",
+      "tool_name": "get_maintenance_history",
+      "sequence": 2,
+      "arguments": {"asset_id": "PUMP-101"},
+      "result": {"work_orders": ["WO-001"], "last_action": "bearing inspection"},
+      "started_at": "2026-08-26T10:40:02Z",
+      "completed_at": "2026-08-26T10:40:02.200000Z",
+      "latency_ms": 200,
+      "retry_count": 0,
+      "status": "success",
+      "error": null
+    }
+  ],
+  "llm_calls": [
+    {
+      "llm_call_id": "llm-unsupported-synthesis",
+      "span_id": "span-unsupported-root",
+      "call_type": "synthesis",
+      "model": "claude-sonnet-4-6",
+      "provider": "anthropic",
+      "started_at": "2026-08-26T10:40:03Z",
+      "completed_at": "2026-08-26T10:40:07Z",
+      "latency_ms": null,
+      "prompt_tokens": null,
+      "completion_tokens": null,
+      "total_tokens": null,
+      "estimated_cost_usd": null,
+      "input_payload": {"evidence": ["FE-002", "bearing inspection"]},
+      "output_payload": {"claim": "Seal was replaced yesterday."},
+      "status": "success",
+      "error": null
+    }
+  ],
+  "hitl": {
+    "required": false,
+    "state": "not_required",
+    "checkpoint_id": null,
+    "decision": null,
+    "requested_at": null,
+    "decided_at": null,
+    "pending_action": null
+  },
+  "usage": {
+    "total_llm_calls": 1,
+    "total_tool_calls": 2,
+    "total_tokens": 0,
+    "total_estimated_cost_usd": 0.0,
+    "total_retries": 0
+  },
+  "final_result": {
+    "output": {
+      "asset_id": "PUMP-101",
+      "summary": "PUMP-101 is running, and its seal was replaced yesterday.",
+      "unsupported_claim": "seal was replaced yesterday"
+    },
+    "source_references": ["tool-unsupported-status", "tool-unsupported-history"]
+  },
+  "runtime_error": null
+}

@@ -1,0 +1,153 @@
+{
+  "schema_version": "1.0",
+  "event_type": "run_final",
+  "run_id": "run-healthy-001",
+  "agent_name": "maintenance-agent",
+  "agent_version": "0.1.0",
+  "prompt_version": "prompt-debug-001",
+  "environment": "fixture",
+  "raw_input": "Check pump PUMP-101 and summarize current maintenance risk.",
+  "normalized_input": "Inspect PUMP-101 maintenance risk",
+  "scenario_id": null,
+  "started_at": "2026-08-26T10:00:00Z",
+  "completed_at": "2026-08-26T10:00:08Z",
+  "status": "success",
+  "execution_latency_ms": 7900,
+  "wall_clock_duration_ms": 8000,
+  "resume_count": 0,
+  "spans": [
+    {
+      "span_id": "span-healthy-root",
+      "parent_span_id": null,
+      "name": "maintenance inspection orchestration",
+      "sequence": 1,
+      "started_at": "2026-08-26T10:00:00Z",
+      "completed_at": "2026-08-26T10:00:08Z",
+      "status": "success",
+      "input": {"asset_id": "PUMP-101"},
+      "output": {"recommendation": "monitor"},
+      "metadata": {"fixture": "healthy_success"},
+      "error": null
+    },
+    {
+      "span_id": "span-healthy-evidence",
+      "parent_span_id": "span-healthy-root",
+      "name": "evidence gathering",
+      "sequence": 2,
+      "started_at": "2026-08-26T10:00:01Z",
+      "completed_at": "2026-08-26T10:00:05Z",
+      "status": "success",
+      "input": {"asset_id": "PUMP-101"},
+      "output": {"fault_codes": ["FE-002"], "recent_work_orders": ["WO-001"]},
+      "metadata": null,
+      "error": null
+    }
+  ],
+  "tool_calls": [
+    {
+      "tool_call_id": "tool-healthy-resolve",
+      "span_id": "span-healthy-evidence",
+      "tool_name": "resolve_asset",
+      "sequence": 1,
+      "arguments": {"asset_id": "PUMP-101"},
+      "result": {"asset_id": "PUMP-101", "asset_type": "centrifugal_pump"},
+      "started_at": "2026-08-26T10:00:01Z",
+      "completed_at": "2026-08-26T10:00:01.100000Z",
+      "latency_ms": 100,
+      "retry_count": 0,
+      "status": "success",
+      "error": null
+    },
+    {
+      "tool_call_id": "tool-healthy-status",
+      "span_id": "span-healthy-evidence",
+      "tool_name": "get_asset_status",
+      "sequence": 2,
+      "arguments": {"asset_id": "PUMP-101"},
+      "result": {"status": "running", "fault_code": "FE-002"},
+      "started_at": "2026-08-26T10:00:02Z",
+      "completed_at": "2026-08-26T10:00:02.150000Z",
+      "latency_ms": 150,
+      "retry_count": 0,
+      "status": "success",
+      "error": null
+    },
+    {
+      "tool_call_id": "tool-healthy-history",
+      "span_id": "span-healthy-evidence",
+      "tool_name": "get_maintenance_history",
+      "sequence": 3,
+      "arguments": {"asset_id": "PUMP-101"},
+      "result": {"work_orders": ["WO-001"], "recurrences_30d": 1},
+      "started_at": "2026-08-26T10:00:03Z",
+      "completed_at": "2026-08-26T10:00:03.200000Z",
+      "latency_ms": 200,
+      "retry_count": 0,
+      "status": "success",
+      "error": null
+    }
+  ],
+  "llm_calls": [
+    {
+      "llm_call_id": "llm-healthy-interpret",
+      "span_id": "span-healthy-root",
+      "call_type": "interpretation",
+      "model": "claude-sonnet-4-6",
+      "provider": "anthropic",
+      "started_at": "2026-08-26T10:00:00.100000Z",
+      "completed_at": "2026-08-26T10:00:00.800000Z",
+      "latency_ms": null,
+      "prompt_tokens": null,
+      "completion_tokens": null,
+      "total_tokens": null,
+      "estimated_cost_usd": null,
+      "input_payload": {"prompt": "Check pump PUMP-101"},
+      "output_payload": {"asset_id": "PUMP-101"},
+      "status": "success",
+      "error": null
+    },
+    {
+      "llm_call_id": "llm-healthy-synthesis",
+      "span_id": "span-healthy-root",
+      "call_type": "synthesis",
+      "model": "claude-sonnet-4-6",
+      "provider": "anthropic",
+      "started_at": "2026-08-26T10:00:05Z",
+      "completed_at": "2026-08-26T10:00:07Z",
+      "latency_ms": null,
+      "prompt_tokens": null,
+      "completion_tokens": null,
+      "total_tokens": null,
+      "estimated_cost_usd": null,
+      "input_payload": {"evidence": ["FE-002", "WO-001"]},
+      "output_payload": {"recommendation": "monitor"},
+      "status": "success",
+      "error": null
+    }
+  ],
+  "hitl": {
+    "required": false,
+    "state": "not_required",
+    "checkpoint_id": null,
+    "decision": null,
+    "requested_at": null,
+    "decided_at": null,
+    "pending_action": null
+  },
+  "usage": {
+    "total_llm_calls": 2,
+    "total_tool_calls": 3,
+    "total_tokens": 0,
+    "total_estimated_cost_usd": 0.0,
+    "total_retries": 0
+  },
+  "final_result": {
+    "output": {
+      "asset_id": "PUMP-101",
+      "summary": "PUMP-101 is running with one recent recurrence of FE-002.",
+      "recommended_action": "continue monitoring"
+    },
+    "source_references": ["tool-healthy-status", "tool-healthy-history"]
+  },
+  "runtime_error": null
+}

@@ -1,0 +1,94 @@
+{
+  "schema_version": "1.0",
+  "event_type": "run_final",
+  "run_id": "run-policy-violation-001",
+  "agent_name": "maintenance-agent",
+  "agent_version": "0.1.0",
+  "prompt_version": "prompt-debug-001",
+  "environment": "fixture",
+  "raw_input": "Submit urgent work for PUMP-204.",
+  "normalized_input": "Submit urgent work order for PUMP-204",
+  "scenario_id": null,
+  "started_at": "2026-08-26T10:50:00Z",
+  "completed_at": "2026-08-26T10:50:06Z",
+  "status": "success",
+  "execution_latency_ms": 6000,
+  "wall_clock_duration_ms": 6000,
+  "resume_count": 0,
+  "spans": [
+    {
+      "span_id": "span-policy-root",
+      "parent_span_id": null,
+      "name": "policy bypass trace",
+      "sequence": 1,
+      "started_at": "2026-08-26T10:50:00Z",
+      "completed_at": "2026-08-26T10:50:06Z",
+      "status": "success",
+      "input": {"asset_id": "PUMP-204"},
+      "output": {"work_order_id": "WO-002"},
+      "metadata": {"fixture": "policy_violation", "policy": "PP-002"},
+      "error": null
+    }
+  ],
+  "tool_calls": [
+    {
+      "tool_call_id": "tool-policy-submit",
+      "span_id": "span-policy-root",
+      "tool_name": "submit_work_order",
+      "sequence": 1,
+      "arguments": {"asset_id": "PUMP-204", "priority": "critical"},
+      "result": {"work_order_id": "WO-002", "status": "submitted"},
+      "started_at": "2026-08-26T10:50:02Z",
+      "completed_at": "2026-08-26T10:50:02.250000Z",
+      "latency_ms": 250,
+      "retry_count": 0,
+      "status": "success",
+      "error": null
+    }
+  ],
+  "llm_calls": [
+    {
+      "llm_call_id": "llm-policy-synthesis",
+      "span_id": "span-policy-root",
+      "call_type": "synthesis",
+      "model": "claude-sonnet-4-6",
+      "provider": "anthropic",
+      "started_at": "2026-08-26T10:50:03Z",
+      "completed_at": "2026-08-26T10:50:05Z",
+      "latency_ms": null,
+      "prompt_tokens": null,
+      "completion_tokens": null,
+      "total_tokens": null,
+      "estimated_cost_usd": null,
+      "input_payload": {"work_order_id": "WO-002"},
+      "output_payload": {"summary": "Submitted without approval."},
+      "status": "success",
+      "error": null
+    }
+  ],
+  "hitl": {
+    "required": false,
+    "state": "not_required",
+    "checkpoint_id": null,
+    "decision": null,
+    "requested_at": null,
+    "decided_at": null,
+    "pending_action": null
+  },
+  "usage": {
+    "total_llm_calls": 1,
+    "total_tool_calls": 1,
+    "total_tokens": 0,
+    "total_estimated_cost_usd": 0.0,
+    "total_retries": 0
+  },
+  "final_result": {
+    "output": {
+      "asset_id": "PUMP-204",
+      "work_order_id": "WO-002",
+      "summary": "Critical work order submitted without draft or human approval."
+    },
+    "source_references": ["tool-policy-submit"]
+  },
+  "runtime_error": null
+}
