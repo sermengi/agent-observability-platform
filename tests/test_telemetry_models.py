@@ -142,6 +142,17 @@ def test_extended_run_event_schema_version_is_fixed_literal() -> None:
     assert get_args(schema_version_field.annotation) == ("1.0",)
 
 
+def test_extended_run_event_documents_snapshot_semantics() -> None:
+    docstring = ExtendedRunEvent.__doc__
+
+    assert docstring is not None
+    assert "snapshot" in docstring.lower()
+    assert "not an event-sourcing event" in docstring.lower()
+    assert "hitl_pending" in docstring
+    assert "hitl_approved" in docstring
+    assert "snapshot" in ExtendedRunEvent.model_json_schema()["description"].lower()
+
+
 def test_unknown_fields_are_ignored_on_contract_models() -> None:
     span = Span(
         span_id="span-custom",

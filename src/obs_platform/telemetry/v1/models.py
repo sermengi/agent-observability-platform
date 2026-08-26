@@ -127,6 +127,20 @@ class FinalResult(TelemetryModel):
 
 
 class ExtendedRunEvent(TelemetryModel):
+    """Complete run-level telemetry snapshot, not an event-sourcing event.
+
+    Each instance is a self-contained restatement of a run's current state. It
+    is not an incremental delta and must not be appended as an event-sourcing
+    event. A normal run emits one RUN_FINAL snapshot. A HITL run emits a
+    RUN_AWAITING_APPROVAL snapshot and later a RUN_FINAL snapshot that fully
+    restates the run, reusing stable child IDs for carried-over spans, tool
+    calls, and LLM calls while adding IDs only for new post-resume activity.
+
+    Consumers should treat a newer snapshot for an already-known run_id as the
+    authoritative replacement to upsert in place. The hitl_pending and
+    hitl_approved fixtures are the canonical worked example of this lifecycle.
+    """
+
     schema_version: Literal["1.0"]
     event_type: RunEventType
     run_id: StableID

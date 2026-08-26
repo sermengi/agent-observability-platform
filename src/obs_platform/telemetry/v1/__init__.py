@@ -1,4 +1,9 @@
-"""Version 1 telemetry contract."""
+"""Version 1 telemetry contract.
+
+Run events in this package are authoritative run-level snapshots, not
+event-sourcing events. See ExtendedRunEvent for the full snapshot lifecycle
+semantics.
+"""
 
 from obs_platform.telemetry.v1.enums import (
     ExecutionStatus,
