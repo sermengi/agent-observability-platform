@@ -80,9 +80,9 @@ def test_hitl_approved_adds_submit_work_order_tool_call() -> None:
     pending = validate_fixture("hitl_pending")
     approved = validate_fixture("hitl_approved")
 
-    new_tool_call_ids = child_ids(approved)["tool_calls"] - child_ids(pending)[
-        "tool_calls"
-    ]
+    new_tool_call_ids = (
+        child_ids(approved)["tool_calls"] - child_ids(pending)["tool_calls"]
+    )
 
     assert new_tool_call_ids
     assert any(
@@ -144,6 +144,5 @@ def test_tool_failure_fixture_never_reaches_synthesis() -> None:
     event = validate_fixture("tool_failure")
 
     assert all(
-        llm_call.call_type is not LLMCallType.SYNTHESIS
-        for llm_call in event.llm_calls
+        llm_call.call_type is not LLMCallType.SYNTHESIS for llm_call in event.llm_calls
     )

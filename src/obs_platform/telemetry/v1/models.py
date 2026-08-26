@@ -195,8 +195,7 @@ class ExtendedRunEvent(TelemetryModel):
         for tool_call in self.tool_calls:
             if tool_call.span_id not in span_ids:
                 raise ValueError(
-                    f"tool_call.span_id references missing span_id: "
-                    f"{tool_call.span_id}"
+                    f"tool_call.span_id references missing span_id: {tool_call.span_id}"
                 )
 
         for llm_call in self.llm_calls:
