@@ -77,6 +77,8 @@ async def test_database_metadata_defines_phase_2_core_tables() -> None:
         "evaluation_results",
         "run_failures",
     }
+    assert "hitl_state_transitions" not in Base.metadata.tables
+    assert "human_approvals" not in Base.metadata.tables
 
 
 async def test_phase_2_primary_key_and_unique_constraints() -> None:

@@ -13,7 +13,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from obs_platform.config import DatabaseSettings
 from obs_platform.database import create_engine
 from obs_platform.db.models import AgentRun, LLMCall, Span, ToolCall
-from obs_platform.ingestion.runs import ingest_run_event
+from obs_platform.ingestion.runs import HITLStateRegressionError, ingest_run_event
 from obs_platform.main import create_app
 from obs_platform.routes import runs
 from obs_platform.telemetry.v1 import ExtendedRunEvent, load_fixture
@@ -272,6 +272,63 @@ async def test_ingestion_uses_one_upsert_statement_per_child_row(
     assert not any("), (" in statement for statement in statements)
 
     await _delete_run(session, run_event.run_id)
+
+
+async def test_hitl_pending_then_approved_overwrites_run_lifecycle_state(
+    session: AsyncSession,
+) -> None:
+    pending = _fixture_with_run_id("hitl_pending", "task6-hitl-approved")
+    approved = _fixture_with_run_id("hitl_approved", pending.run_id)
+
+    await _delete_run(session, pending.run_id)
+    await ingest_run_event(session, pending)
+    await session.commit()
+
+    await ingest_run_event(session, approved)
+
+    run = await session.scalar(
+        select(AgentRun).where(AgentRun.run_id == approved.run_id)
+    )
+    assert run is not None
+    assert approved.final_result is not None
+    assert run.hitl_state == approved.hitl.state.value
+    assert run.status == approved.status.value
+    assert run.event_type == approved.event_type.value
+    assert run.completed_at == approved.completed_at
+    assert run.final_result_output == approved.final_result.output
+    assert run.hitl_pending_action is None
+    assert await _count_for_run(session, AgentRun, approved.run_id) == 1
+
+    submitted_tool_call = await session.scalar(
+        select(ToolCall.tool_call_id).where(
+            ToolCall.run_id == approved.run_id,
+            ToolCall.tool_call_id == "tool-gs08-submit",
+        )
+    )
+    assert submitted_tool_call == "tool-gs08-submit"
+
+    await _delete_run(session, approved.run_id)
+
+
+async def test_hitl_pending_repost_after_approved_is_rejected(
+    session: AsyncSession,
+) -> None:
+    pending = _fixture_with_run_id("hitl_pending", "task6-reject-pending-regression")
+    approved = _fixture_with_run_id("hitl_approved", pending.run_id)
+
+    await _delete_run(session, pending.run_id)
+    await ingest_run_event(session, approved)
+    await session.commit()
+
+    with pytest.raises(HITLStateRegressionError):
+        await ingest_run_event(session, pending)
+
+    hitl_state = await session.scalar(
+        select(AgentRun.hitl_state).where(AgentRun.run_id == approved.run_id)
+    )
+    assert hitl_state == "approved"
+
+    await _delete_run(session, approved.run_id)
 
 
 def _fixture_with_run_id(name: str, run_id: str) -> ExtendedRunEvent:

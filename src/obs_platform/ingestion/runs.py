@@ -2,11 +2,12 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import Any, cast
 
-from sqlalchemy import Table, update
+from sqlalchemy import Table, select, update
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from obs_platform.db.models import AgentRun, LLMCall, Span, ToolCall
+from obs_platform.telemetry.v1.enums import HITLState
 from obs_platform.telemetry.v1.models import (
     ErrorInfo,
     ExtendedRunEvent,
@@ -29,6 +30,10 @@ class IngestRunResult:
     status: str
 
 
+class HITLStateRegressionError(RuntimeError):
+    pass
+
+
 async def ingest_run_event(
     session: AsyncSession,
     event: ExtendedRunEvent,
@@ -36,6 +41,7 @@ async def ingest_run_event(
     now = datetime.now(UTC)
 
     async with session.begin():
+        await _reject_pending_after_terminal_hitl_state(session, event)
         await _upsert_agent_run(session, event, now)
         span_ids = await _upsert_spans(session, event.run_id, event.spans)
         await _resolve_span_parents(session, event.run_id, event.spans, span_ids)
@@ -61,6 +67,23 @@ async def ingest_run_event(
         event_type=event.event_type.value,
         status=event.status.value,
     )
+
+
+async def _reject_pending_after_terminal_hitl_state(
+    session: AsyncSession,
+    event: ExtendedRunEvent,
+) -> None:
+    if event.hitl.state is not HITLState.PENDING:
+        return
+
+    stored_hitl_state = await session.scalar(
+        select(AgentRun.hitl_state).where(AgentRun.run_id == event.run_id)
+    )
+    if stored_hitl_state in {HITLState.APPROVED.value, HITLState.REJECTED.value}:
+        raise HITLStateRegressionError(
+            f"run {event.run_id} is already in terminal HITL state "
+            f"{stored_hitl_state!r} and cannot be moved back to pending"
+        )
 
 
 async def _upsert_agent_run(
