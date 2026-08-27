@@ -99,7 +99,7 @@ async def _upsert_agent_run(
     await session.execute(
         statement.on_conflict_do_update(
             index_elements=[table.c.run_id],
-            set_=_update_values(statement, values, exclude={"run_id"}),
+            set_=_update_values(statement, values, exclude={"run_id", "ingested_at"}),
         )
     )
 

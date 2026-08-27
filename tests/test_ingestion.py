@@ -207,6 +207,25 @@ async def test_reingesting_identical_payload_keeps_span_identities_stable(
     await _delete_run(session, event.run_id)
 
 
+async def test_reingesting_payload_keeps_ingested_at_stable(
+    session: AsyncSession,
+) -> None:
+    event = _fixture_with_run_id("healthy_success", "task5-stable-ingested-at")
+
+    await _delete_run(session, event.run_id)
+    await ingest_run_event(session, event)
+    first_ingested_at = await _run_ingested_at(session, event.run_id)
+    await session.commit()
+    await asyncio.sleep(0.001)
+
+    await ingest_run_event(session, event)
+    second_ingested_at = await _run_ingested_at(session, event.run_id)
+
+    assert second_ingested_at == first_ingested_at
+
+    await _delete_run(session, event.run_id)
+
+
 async def test_reingestion_preserves_extra_child_rows_for_same_run(
     session: AsyncSession,
 ) -> None:
@@ -445,6 +464,13 @@ async def _run_updated_at(session: AsyncSession, run_id: str) -> datetime:
         select(AgentRun.updated_at).where(AgentRun.run_id == run_id)
     )
     return cast(datetime, updated_at)
+
+
+async def _run_ingested_at(session: AsyncSession, run_id: str) -> datetime:
+    ingested_at = await session.scalar(
+        select(AgentRun.ingested_at).where(AgentRun.run_id == run_id)
+    )
+    return cast(datetime, ingested_at)
 
 
 async def _span_internal_ids(session: AsyncSession, run_id: str) -> dict[str, int]:
