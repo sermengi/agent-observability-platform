@@ -56,7 +56,7 @@ class AgentRun(Base):
     agent_version: Mapped[str] = mapped_column(Text, nullable=False)
     prompt_version: Mapped[str] = mapped_column(Text, nullable=False)
     environment: Mapped[str] = mapped_column(Text, nullable=False)
-    raw_input: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False)
+    raw_input: Mapped[Any] = mapped_column(JSONB, nullable=False)
     normalized_input: Mapped[str | None] = mapped_column(Text)
     scenario_id: Mapped[str | None] = mapped_column(Text)
     started_at: Mapped[datetime] = mapped_column(

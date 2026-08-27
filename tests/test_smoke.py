@@ -10,10 +10,10 @@ async def test_health_ok(client: AsyncClient) -> None:
     assert response.json() == {"status": "ok", "checks": {"database": "ok"}}
 
 
-async def test_placeholder_run_returns_501(client: AsyncClient) -> None:
+async def test_invalid_run_returns_422(client: AsyncClient) -> None:
     response = await client.post("/v1/runs", json={"phase": 0, "payload": {}})
 
-    assert response.status_code == 501
+    assert response.status_code == 422
 
 
 async def test_create_app() -> None:
