@@ -1,6 +1,11 @@
 from pathlib import Path
+from typing import cast
+
+from sqlalchemy import CheckConstraint, ForeignKeyConstraint, Table, UniqueConstraint
+from sqlalchemy.dialects.postgresql import ARRAY, DOUBLE_PRECISION, JSONB
 
 from obs_platform.database import Base
+from obs_platform.db import models
 
 
 async def test_alembic_env_uses_async_engine_and_shared_settings() -> None:
@@ -16,12 +21,28 @@ async def test_alembic_env_uses_async_engine_and_shared_settings() -> None:
 
 async def test_initial_migration_is_empty_domain_bootstrap() -> None:
     migration_files = list(Path("migrations/versions").glob("*.py"))
+    initial_migration = Path(
+        "migrations/versions/20260825_0001_initial_empty_bootstrap.py"
+    )
 
-    assert len(migration_files) == 1
-    migration = migration_files[0].read_text()
+    assert len(migration_files) == 2
+    migration = initial_migration.read_text()
     assert "op.create_table" not in migration
     assert "op.drop_table" not in migration
     assert "pass" in migration
+
+
+async def test_phase_2_migration_creates_core_tables_only() -> None:
+    migration = Path(
+        "migrations/versions/20260827_0002_create_phase_2_core_tables.py"
+    ).read_text()
+
+    assert 'down_revision: str | Sequence[str] | None = "20260825_0001"' in migration
+    for table_name in Base.metadata.tables:
+        assert f'"{table_name}"' in migration
+    assert '"regression_runs"' not in migration
+    assert migration.count("op.create_table(") == 6
+    assert migration.count("op.drop_table(") == 6
 
 
 async def test_make_up_runs_migrations_before_compose_startup() -> None:
@@ -47,5 +68,145 @@ async def test_make_up_runs_migrations_before_compose_startup() -> None:
     assert "uv run alembic upgrade head" not in makefile
 
 
-async def test_database_metadata_starts_without_domain_tables() -> None:
-    assert Base.metadata.tables == {}
+async def test_database_metadata_defines_phase_2_core_tables() -> None:
+    assert set(Base.metadata.tables) == {
+        "agent_runs",
+        "spans",
+        "tool_calls",
+        "llm_calls",
+        "evaluation_results",
+        "run_failures",
+    }
+
+
+async def test_phase_2_primary_key_and_unique_constraints() -> None:
+    spans = cast(Table, models.Span.__table__)
+    tool_calls = cast(Table, models.ToolCall.__table__)
+    llm_calls = cast(Table, models.LLMCall.__table__)
+
+    assert [column.name for column in spans.primary_key] == ["id"]
+    assert spans.c.id.autoincrement is True
+    assert _has_unique_constraint(spans, ["run_id", "span_id"])
+
+    assert "id" not in tool_calls.c
+    assert [column.name for column in tool_calls.primary_key] == [
+        "run_id",
+        "tool_call_id",
+    ]
+
+    assert "id" not in llm_calls.c
+    assert [column.name for column in llm_calls.primary_key] == [
+        "run_id",
+        "llm_call_id",
+    ]
+
+
+async def test_phase_2_error_fields_are_flattened_columns() -> None:
+    for table_name, prefix in {
+        "agent_runs": "runtime_error",
+        "spans": "error",
+        "tool_calls": "error",
+        "llm_calls": "error",
+    }.items():
+        table = Base.metadata.tables[table_name]
+        assert f"{prefix}_category" in table.c
+        assert f"{prefix}_code" in table.c
+        assert f"{prefix}_message" in table.c
+        assert f"{prefix}_failed_component" in table.c
+        assert "error" not in table.c
+
+
+async def test_evaluation_results_regression_run_is_reserved_without_fk() -> None:
+    table = cast(Table, models.EvaluationResult.__table__)
+
+    assert "regression_run_id" in table.c
+    assert table.c.regression_run_id.nullable is True
+    assert not _foreign_key_constraints_for(table, ["regression_run_id"])
+    assert not _has_unique_constraint(table, ["run_id", "evaluator_name"])
+    assert _has_unique_constraint(
+        table,
+        ["run_id", "evaluator_name", "evaluator_version", "regression_run_id"],
+    )
+    assert "regression_runs" not in Base.metadata.tables
+
+
+async def test_phase_2_check_constraints_only_cover_locked_vocabularies() -> None:
+    constrained_columns = {
+        "agent_runs": ["event_type", "status", "hitl_state", "hitl_decision"],
+        "spans": ["status"],
+        "tool_calls": ["status"],
+        "llm_calls": ["call_type", "status"],
+    }
+
+    for table_name, column_names in constrained_columns.items():
+        expressions = _check_constraint_sql(Base.metadata.tables[table_name])
+        for column_name in column_names:
+            assert any(column_name in expression for expression in expressions)
+
+    unconstrained_columns = {
+        "evaluation_results": ["status", "label", "severity"],
+        "run_failures": ["primary_category", "secondary_category", "max_severity"],
+    }
+
+    for table_name, column_names in unconstrained_columns.items():
+        expressions = _check_constraint_sql(Base.metadata.tables[table_name])
+        for column_name in column_names:
+            assert not any(column_name in expression for expression in expressions)
+
+
+async def test_phase_2_jsonb_array_and_double_precision_columns() -> None:
+    agent_runs = cast(Table, models.AgentRun.__table__)
+    spans = cast(Table, models.Span.__table__)
+    tool_calls = cast(Table, models.ToolCall.__table__)
+    llm_calls = cast(Table, models.LLMCall.__table__)
+    evaluation_results = cast(Table, models.EvaluationResult.__table__)
+
+    for column in [
+        agent_runs.c.raw_input,
+        agent_runs.c.hitl_pending_action,
+        agent_runs.c.final_result_output,
+        spans.c.input,
+        spans.c.output,
+        spans.c.metadata,
+        tool_calls.c.arguments,
+        tool_calls.c.result,
+        llm_calls.c.input_payload,
+        llm_calls.c.output_payload,
+        evaluation_results.c.findings,
+    ]:
+        assert isinstance(column.type, JSONB)
+
+    assert isinstance(agent_runs.c.final_result_source_references.type, ARRAY)
+    assert isinstance(llm_calls.c.estimated_cost_usd.type, DOUBLE_PRECISION)
+    assert isinstance(
+        agent_runs.c.usage_total_estimated_cost_usd.type,
+        DOUBLE_PRECISION,
+    )
+
+
+def _has_unique_constraint(table: Table, column_names: list[str]) -> bool:
+    return any(
+        isinstance(constraint, UniqueConstraint)
+        and [column.name for column in constraint.columns] == column_names
+        for constraint in table.constraints
+    )
+
+
+def _foreign_key_constraints_for(
+    table: Table,
+    column_names: list[str],
+) -> list[ForeignKeyConstraint]:
+    return [
+        constraint
+        for constraint in table.constraints
+        if isinstance(constraint, ForeignKeyConstraint)
+        and [column.name for column in constraint.columns] == column_names
+    ]
+
+
+def _check_constraint_sql(table: Table) -> list[str]:
+    return [
+        str(constraint.sqltext)
+        for constraint in table.constraints
+        if isinstance(constraint, CheckConstraint)
+    ]

@@ -10,6 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncEngine, async_engine_from_config
 
 from obs_platform.config import DatabaseOnlySettings
 from obs_platform.database import Base
+from obs_platform.db import models  # noqa: F401
 
 config = context.config
 
