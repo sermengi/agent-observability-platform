@@ -1,9 +1,13 @@
+import asyncio
 from collections.abc import AsyncIterator
-from typing import cast
+from datetime import datetime
+from typing import Any, cast
 
 import pytest
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy import delete, func, select
+from sqlalchemy import event as sqlalchemy_event
+from sqlalchemy.engine import Engine
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from obs_platform.config import DatabaseSettings
@@ -153,6 +157,123 @@ async def test_child_span_before_parent_resolves_parent_span_id(
     await _delete_run(session, event.run_id)
 
 
+async def test_reingesting_identical_payload_does_not_duplicate_rows(
+    session: AsyncSession,
+) -> None:
+    event = _fixture_with_run_id("healthy_success", "task5-no-duplicates")
+
+    await _delete_run(session, event.run_id)
+    await ingest_run_event(session, event)
+    initial_counts = await _entity_counts(session, event.run_id)
+    await session.commit()
+
+    await ingest_run_event(session, event)
+
+    assert await _entity_counts(session, event.run_id) == initial_counts
+
+    await _delete_run(session, event.run_id)
+
+
+async def test_reingesting_identical_payload_keeps_span_identities_stable(
+    session: AsyncSession,
+) -> None:
+    event = _fixture_with_run_id("healthy_success", "task5-stable-identities")
+
+    await _delete_run(session, event.run_id)
+    await ingest_run_event(session, event)
+    first_span_ids = await _span_internal_ids(session, event.run_id)
+    first_updated_at = await _run_updated_at(session, event.run_id)
+    await session.commit()
+    await asyncio.sleep(0.001)
+
+    await ingest_run_event(session, event)
+    second_span_ids = await _span_internal_ids(session, event.run_id)
+    second_updated_at = await _run_updated_at(session, event.run_id)
+
+    assert second_span_ids == first_span_ids
+    assert second_updated_at > first_updated_at
+
+    await _delete_run(session, event.run_id)
+
+
+async def test_reingestion_preserves_extra_child_rows_for_same_run(
+    session: AsyncSession,
+) -> None:
+    event = _fixture_with_run_id("healthy_success", "task5-preserve-extra-child")
+
+    await _delete_run(session, event.run_id)
+    await ingest_run_event(session, event)
+    span_ids = await _span_internal_ids(session, event.run_id)
+    session.add(
+        ToolCall(
+            run_id=event.run_id,
+            tool_call_id="manual-extra-tool-call",
+            span_id=span_ids["span-healthy-root"],
+            tool_name="manual_debug_tool",
+            sequence=999,
+            arguments={"source": "test"},
+            result={"preserved": True},
+            started_at=event.started_at,
+            completed_at=event.started_at,
+            retry_count=0,
+            status="success",
+        )
+    )
+    await session.commit()
+
+    await ingest_run_event(session, event)
+
+    extra_tool_call = await session.scalar(
+        select(ToolCall.tool_call_id).where(
+            ToolCall.run_id == event.run_id,
+            ToolCall.tool_call_id == "manual-extra-tool-call",
+        )
+    )
+    assert extra_tool_call == "manual-extra-tool-call"
+
+    await _delete_run(session, event.run_id)
+
+
+async def test_ingestion_uses_one_upsert_statement_per_child_row(
+    session: AsyncSession,
+) -> None:
+    run_event = _fixture_with_run_id("healthy_success", "task5-per-row-upserts")
+    statements: list[str] = []
+
+    def capture_sql(
+        conn: Any,
+        cursor: Any,
+        statement: str,
+        parameters: Any,
+        context: Any,
+        executemany: bool,
+    ) -> None:
+        if statement.startswith("INSERT INTO spans"):
+            statements.append(statement)
+        if statement.startswith("INSERT INTO tool_calls"):
+            statements.append(statement)
+        if statement.startswith("INSERT INTO llm_calls"):
+            statements.append(statement)
+
+    await _delete_run(session, run_event.run_id)
+    sync_engine = cast(Engine, cast(Any, session.bind).sync_engine)
+    sqlalchemy_event.listen(sync_engine, "before_cursor_execute", capture_sql)
+    try:
+        await ingest_run_event(session, run_event)
+    finally:
+        sqlalchemy_event.remove(sync_engine, "before_cursor_execute", capture_sql)
+
+    assert len(statements) == len(run_event.spans) + len(
+        run_event.tool_calls
+    ) + len(
+        run_event.llm_calls
+    )
+    assert all("ON CONFLICT" in statement for statement in statements)
+    assert not any("), (" in statement for statement in statements)
+
+    await _delete_run(session, run_event.run_id)
+
+
 def _fixture_with_run_id(name: str, run_id: str) -> ExtendedRunEvent:
     event = load_fixture(name)
     event.run_id = run_id
@@ -172,6 +293,22 @@ async def _delete_run(session: AsyncSession, run_id: str) -> None:
     for model in (LLMCall, ToolCall, Span, AgentRun):
         await session.execute(delete(model).where(model.run_id == run_id))
     await session.commit()
+
+
+async def _entity_counts(session: AsyncSession, run_id: str) -> dict[str, int]:
+    return {
+        "agent_runs": await _count_for_run(session, AgentRun, run_id),
+        "spans": await _count_for_run(session, Span, run_id),
+        "tool_calls": await _count_for_run(session, ToolCall, run_id),
+        "llm_calls": await _count_for_run(session, LLMCall, run_id),
+    }
+
+
+async def _run_updated_at(session: AsyncSession, run_id: str) -> datetime:
+    updated_at = await session.scalar(
+        select(AgentRun.updated_at).where(AgentRun.run_id == run_id)
+    )
+    return cast(datetime, updated_at)
 
 
 async def _span_internal_ids(session: AsyncSession, run_id: str) -> dict[str, int]:
