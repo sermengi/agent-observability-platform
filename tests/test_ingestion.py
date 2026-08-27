@@ -99,6 +99,60 @@ async def test_ingest_run_event_rolls_back_when_child_normalization_fails(
     assert await _count_for_run(session, LLMCall, event.run_id) == 0
 
 
+async def test_hitl_reingestion_preserves_carried_over_child_identity(
+    session: AsyncSession,
+) -> None:
+    pending = _fixture_with_run_id("hitl_pending", "task4-hitl-identity")
+    approved = _fixture_with_run_id("hitl_approved", pending.run_id)
+
+    await _delete_run(session, pending.run_id)
+    await ingest_run_event(session, pending)
+    pending_span_ids = await _span_internal_ids(session, pending.run_id)
+    pending_tool_span_ids = await _tool_span_ids(session, pending.run_id)
+    pending_llm_span_ids = await _llm_span_ids(session, pending.run_id)
+    await session.commit()
+
+    await ingest_run_event(session, approved)
+    approved_span_ids = await _span_internal_ids(session, approved.run_id)
+    approved_tool_span_ids = await _tool_span_ids(session, approved.run_id)
+    approved_llm_span_ids = await _llm_span_ids(session, approved.run_id)
+
+    for span_id in {span.span_id for span in pending.spans}:
+        assert approved_span_ids[span_id] == pending_span_ids[span_id]
+
+    for tool_call_id in {tool_call.tool_call_id for tool_call in pending.tool_calls}:
+        assert approved_tool_span_ids[tool_call_id] == pending_tool_span_ids[
+            tool_call_id
+        ]
+
+    for llm_call_id in {llm_call.llm_call_id for llm_call in pending.llm_calls}:
+        assert approved_llm_span_ids[llm_call_id] == pending_llm_span_ids[llm_call_id]
+
+    await _delete_run(session, pending.run_id)
+
+
+async def test_child_span_before_parent_resolves_parent_span_id(
+    session: AsyncSession,
+) -> None:
+    event = _fixture_with_run_id("healthy_success", "task4-child-before-parent")
+    event.spans = [event.spans[1], event.spans[0]]
+
+    await _delete_run(session, event.run_id)
+    await ingest_run_event(session, event)
+
+    span_ids = await _span_internal_ids(session, event.run_id)
+    parent_span_id = await session.scalar(
+        select(Span.parent_span_id).where(
+            Span.run_id == event.run_id,
+            Span.span_id == "span-healthy-evidence",
+        )
+    )
+
+    assert parent_span_id == span_ids["span-healthy-root"]
+
+    await _delete_run(session, event.run_id)
+
+
 def _fixture_with_run_id(name: str, run_id: str) -> ExtendedRunEvent:
     event = load_fixture(name)
     event.run_id = run_id
@@ -118,3 +172,24 @@ async def _delete_run(session: AsyncSession, run_id: str) -> None:
     for model in (LLMCall, ToolCall, Span, AgentRun):
         await session.execute(delete(model).where(model.run_id == run_id))
     await session.commit()
+
+
+async def _span_internal_ids(session: AsyncSession, run_id: str) -> dict[str, int]:
+    rows = await session.execute(
+        select(Span.span_id, Span.id).where(Span.run_id == run_id)
+    )
+    return {span_id: internal_id for span_id, internal_id in rows}
+
+
+async def _tool_span_ids(session: AsyncSession, run_id: str) -> dict[str, int]:
+    rows = await session.execute(
+        select(ToolCall.tool_call_id, ToolCall.span_id).where(ToolCall.run_id == run_id)
+    )
+    return {tool_call_id: span_id for tool_call_id, span_id in rows}
+
+
+async def _llm_span_ids(session: AsyncSession, run_id: str) -> dict[str, int]:
+    rows = await session.execute(
+        select(LLMCall.llm_call_id, LLMCall.span_id).where(LLMCall.run_id == run_id)
+    )
+    return {llm_call_id: span_id for llm_call_id, span_id in rows}
