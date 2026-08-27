@@ -2,7 +2,7 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import Any, cast
 
-from sqlalchemy import Table, select, update
+from sqlalchemy import Table, func, select, update
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -61,6 +61,8 @@ async def ingest_run_event(
                 llm_call_event,
                 span_ids[llm_call_event.span_id],
             )
+
+        await _refresh_run_usage_totals(session, event.run_id)
 
     return IngestRunResult(
         run_id=event.run_id,
@@ -189,6 +191,48 @@ async def _upsert_llm_call(
     )
 
 
+async def _refresh_run_usage_totals(session: AsyncSession, run_id: str) -> None:
+    llm_call_count = (
+        select(func.count())
+        .select_from(LLMCall)
+        .where(LLMCall.run_id == run_id)
+        .scalar_subquery()
+    )
+    tool_call_count = (
+        select(func.count())
+        .select_from(ToolCall)
+        .where(ToolCall.run_id == run_id)
+        .scalar_subquery()
+    )
+    token_sum = (
+        select(func.coalesce(func.sum(LLMCall.total_tokens), 0))
+        .where(LLMCall.run_id == run_id)
+        .scalar_subquery()
+    )
+    retry_sum = (
+        select(func.coalesce(func.sum(ToolCall.retry_count), 0))
+        .where(ToolCall.run_id == run_id)
+        .scalar_subquery()
+    )
+    estimated_cost_sum = (
+        select(func.coalesce(func.sum(LLMCall.estimated_cost_usd), 0.0))
+        .where(LLMCall.run_id == run_id)
+        .scalar_subquery()
+    )
+
+    await session.execute(
+        update(AgentRun)
+        .where(AgentRun.run_id == run_id)
+        .values(
+            usage_total_llm_calls=llm_call_count,
+            usage_total_tool_calls=tool_call_count,
+            usage_total_tokens=token_sum,
+            usage_total_retries=retry_sum,
+            usage_total_estimated_cost_usd=estimated_cost_sum,
+        )
+    )
+
+
 def _agent_run_values(event: ExtendedRunEvent, now: datetime) -> dict[str, Any]:
     runtime_error = _error_fields(event.runtime_error, prefix="runtime_error")
     return {
@@ -215,11 +259,6 @@ def _agent_run_values(event: ExtendedRunEvent, now: datetime) -> dict[str, Any]:
         "hitl_requested_at": event.hitl.requested_at,
         "hitl_decided_at": event.hitl.decided_at,
         "hitl_pending_action": event.hitl.pending_action,
-        "usage_total_llm_calls": event.usage.total_llm_calls,
-        "usage_total_tool_calls": event.usage.total_tool_calls,
-        "usage_total_tokens": event.usage.total_tokens,
-        "usage_total_retries": event.usage.total_retries,
-        "usage_total_estimated_cost_usd": event.usage.total_estimated_cost_usd,
         "final_result_output": (
             event.final_result.output if event.final_result is not None else None
         ),

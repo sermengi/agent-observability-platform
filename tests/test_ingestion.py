@@ -18,6 +18,17 @@ from obs_platform.main import create_app
 from obs_platform.routes import runs
 from obs_platform.telemetry.v1 import ExtendedRunEvent, load_fixture
 
+CANONICAL_FIXTURES = (
+    "healthy_success",
+    "hitl_pending",
+    "hitl_approved",
+    "unsupported_claim_candidate",
+    "policy_violation",
+    "tool_failure",
+    "retrieval_failure",
+    "trajectory_error",
+)
+
 
 @pytest.fixture
 async def session() -> AsyncIterator[AsyncSession]:
@@ -331,6 +342,76 @@ async def test_hitl_pending_repost_after_approved_is_rejected(
     await _delete_run(session, approved.run_id)
 
 
+@pytest.mark.parametrize("fixture_name", CANONICAL_FIXTURES)
+async def test_usage_totals_are_derived_from_persisted_granular_calls(
+    session: AsyncSession,
+    fixture_name: str,
+) -> None:
+    event = _fixture_with_run_id(fixture_name, f"task7-usage-{fixture_name}")
+
+    await _delete_run(session, event.run_id)
+    await ingest_run_event(session, event)
+
+    assert await _stored_usage_totals(session, event.run_id) == (
+        await _derived_usage_totals(session, event.run_id)
+    )
+
+    await _delete_run(session, event.run_id)
+
+
+async def test_usage_totals_ignore_incorrect_producer_reported_summary(
+    session: AsyncSession,
+) -> None:
+    event = _fixture_with_run_id("healthy_success", "task7-ignore-producer-usage")
+    event.usage.total_llm_calls = 999
+    event.usage.total_tool_calls = 999
+    event.usage.total_tokens = 999
+    event.usage.total_retries = 999
+    event.usage.total_estimated_cost_usd = 999.0
+
+    await _delete_run(session, event.run_id)
+    await ingest_run_event(session, event)
+
+    stored_totals = await _stored_usage_totals(session, event.run_id)
+    assert stored_totals == await _derived_usage_totals(session, event.run_id)
+    assert stored_totals != {
+        "usage_total_llm_calls": event.usage.total_llm_calls,
+        "usage_total_tool_calls": event.usage.total_tool_calls,
+        "usage_total_tokens": event.usage.total_tokens,
+        "usage_total_retries": event.usage.total_retries,
+        "usage_total_estimated_cost_usd": event.usage.total_estimated_cost_usd,
+    }
+
+    await _delete_run(session, event.run_id)
+
+
+async def test_tool_failure_usage_totals_are_not_null(
+    session: AsyncSession,
+) -> None:
+    event = _fixture_with_run_id("tool_failure", "task7-tool-failure-usage")
+
+    await _delete_run(session, event.run_id)
+    await ingest_run_event(session, event)
+
+    stored_totals = await _stored_usage_totals(session, event.run_id)
+    assert stored_totals == await _derived_usage_totals(session, event.run_id)
+    assert stored_totals["usage_total_tokens"] is not None
+    assert stored_totals["usage_total_estimated_cost_usd"] is not None
+
+    await _delete_run(session, event.run_id)
+
+
+def test_agent_runs_do_not_store_latency_average_or_percentile_columns() -> None:
+    column_names = set(AgentRun.__table__.columns.keys())
+
+    assert not any(
+        ("latency" in column_name and "avg" in column_name)
+        or "percentile" in column_name
+        or "p95" in column_name
+        for column_name in column_names
+    )
+
+
 def _fixture_with_run_id(name: str, run_id: str) -> ExtendedRunEvent:
     event = load_fixture(name)
     event.run_id = run_id
@@ -387,3 +468,57 @@ async def _llm_span_ids(session: AsyncSession, run_id: str) -> dict[str, int]:
         select(LLMCall.llm_call_id, LLMCall.span_id).where(LLMCall.run_id == run_id)
     )
     return {llm_call_id: span_id for llm_call_id, span_id in rows}
+
+
+async def _stored_usage_totals(
+    session: AsyncSession,
+    run_id: str,
+) -> dict[str, int | float]:
+    row = (
+        await session.execute(
+            select(
+                AgentRun.usage_total_llm_calls,
+                AgentRun.usage_total_tool_calls,
+                AgentRun.usage_total_tokens,
+                AgentRun.usage_total_retries,
+                AgentRun.usage_total_estimated_cost_usd,
+            ).where(AgentRun.run_id == run_id)
+        )
+    ).one()
+    return {
+        "usage_total_llm_calls": row.usage_total_llm_calls,
+        "usage_total_tool_calls": row.usage_total_tool_calls,
+        "usage_total_tokens": row.usage_total_tokens,
+        "usage_total_retries": row.usage_total_retries,
+        "usage_total_estimated_cost_usd": row.usage_total_estimated_cost_usd,
+    }
+
+
+async def _derived_usage_totals(
+    session: AsyncSession,
+    run_id: str,
+) -> dict[str, int | float]:
+    llm_row = (
+        await session.execute(
+            select(
+                func.count(LLMCall.llm_call_id).label("llm_calls"),
+                func.coalesce(func.sum(LLMCall.total_tokens), 0).label("tokens"),
+                func.coalesce(func.sum(LLMCall.estimated_cost_usd), 0).label("cost"),
+            ).where(LLMCall.run_id == run_id)
+        )
+    ).one()
+    tool_row = (
+        await session.execute(
+            select(
+                func.count(ToolCall.tool_call_id).label("tool_calls"),
+                func.coalesce(func.sum(ToolCall.retry_count), 0).label("retries"),
+            ).where(ToolCall.run_id == run_id)
+        )
+    ).one()
+    return {
+        "usage_total_llm_calls": llm_row.llm_calls,
+        "usage_total_tool_calls": tool_row.tool_calls,
+        "usage_total_tokens": llm_row.tokens,
+        "usage_total_retries": tool_row.retries,
+        "usage_total_estimated_cost_usd": llm_row.cost,
+    }
