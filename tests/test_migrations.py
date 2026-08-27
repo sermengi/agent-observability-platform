@@ -1,7 +1,13 @@
 from pathlib import Path
 from typing import cast
 
-from sqlalchemy import CheckConstraint, ForeignKeyConstraint, Table, UniqueConstraint
+from sqlalchemy import (
+    CheckConstraint,
+    ForeignKeyConstraint,
+    Index,
+    Table,
+    UniqueConstraint,
+)
 from sqlalchemy.dialects.postgresql import ARRAY, DOUBLE_PRECISION, JSONB
 
 from obs_platform.database import Base
@@ -25,7 +31,7 @@ async def test_initial_migration_is_empty_domain_bootstrap() -> None:
         "migrations/versions/20260825_0001_initial_empty_bootstrap.py"
     )
 
-    assert len(migration_files) == 2
+    assert len(migration_files) == 3
     migration = initial_migration.read_text()
     assert "op.create_table" not in migration
     assert "op.drop_table" not in migration
@@ -43,6 +49,30 @@ async def test_phase_2_migration_creates_core_tables_only() -> None:
     assert '"regression_runs"' not in migration
     assert migration.count("op.create_table(") == 6
     assert migration.count("op.drop_table(") == 6
+
+
+async def test_phase_2_index_migration_creates_minimal_indexes() -> None:
+    migration = Path(
+        "migrations/versions/20260827_0003_add_phase_2_minimal_indexes.py"
+    ).read_text()
+
+    assert 'down_revision: str | Sequence[str] | None = "20260827_0002"' in migration
+    for index_name in {
+        "ix_agent_runs_status",
+        "ix_agent_runs_scenario_id",
+        "ix_agent_runs_agent_version",
+        "ix_agent_runs_started_at",
+        "ix_spans_parent_span_id",
+        "ix_tool_calls_span_id",
+        "ix_tool_calls_tool_name_status",
+        "ix_llm_calls_span_id",
+        "ix_llm_calls_model",
+    }:
+        assert index_name in migration
+
+    assert "ix_run_failures_primary_category" not in migration
+    assert "ix_run_failures_secondary_category" not in migration
+    assert "ix_evaluation_results_evaluator_name" not in migration
 
 
 async def test_make_up_runs_migrations_before_compose_startup() -> None:
@@ -301,6 +331,28 @@ async def test_phase_2_relational_policy_columns_are_not_jsonb() -> None:
             assert not isinstance(table.c[column_name].type, JSONB)
 
 
+async def test_phase_2_metadata_defines_minimal_indexes() -> None:
+    assert _index_columns(cast(Table, models.AgentRun.__table__)) == {
+        "ix_agent_runs_status": ["status"],
+        "ix_agent_runs_scenario_id": ["scenario_id"],
+        "ix_agent_runs_agent_version": ["agent_version"],
+        "ix_agent_runs_started_at": ["started_at"],
+    }
+    assert _index_columns(cast(Table, models.Span.__table__)) == {
+        "ix_spans_parent_span_id": ["parent_span_id"],
+    }
+    assert _index_columns(cast(Table, models.ToolCall.__table__)) == {
+        "ix_tool_calls_span_id": ["span_id"],
+        "ix_tool_calls_tool_name_status": ["tool_name", "status"],
+    }
+    assert _index_columns(cast(Table, models.LLMCall.__table__)) == {
+        "ix_llm_calls_span_id": ["span_id"],
+        "ix_llm_calls_model": ["model"],
+    }
+    assert _index_columns(cast(Table, models.EvaluationResult.__table__)) == {}
+    assert _index_columns(cast(Table, models.RunFailure.__table__)) == {}
+
+
 def _has_unique_constraint(table: Table, column_names: list[str]) -> bool:
     return any(
         isinstance(constraint, UniqueConstraint)
@@ -327,3 +379,11 @@ def _check_constraint_sql(table: Table) -> list[str]:
         for constraint in table.constraints
         if isinstance(constraint, CheckConstraint)
     ]
+
+
+def _index_columns(table: Table) -> dict[str, list[str]]:
+    return {
+        cast(str, index.name): [column.name for column in index.columns]
+        for index in table.indexes
+        if isinstance(index, Index)
+    }

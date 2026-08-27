@@ -6,6 +6,7 @@ from sqlalchemy import (
     CheckConstraint,
     DateTime,
     ForeignKey,
+    Index,
     Integer,
     String,
     Text,
@@ -47,6 +48,10 @@ class AgentRun(Base):
             "hitl_decision IS NULL OR hitl_decision IN ('approve', 'reject')",
             name="ck_agent_runs_hitl_decision",
         ),
+        Index("ix_agent_runs_status", "status"),
+        Index("ix_agent_runs_scenario_id", "scenario_id"),
+        Index("ix_agent_runs_agent_version", "agent_version"),
+        Index("ix_agent_runs_started_at", "started_at"),
     )
 
     run_id: Mapped[str] = mapped_column(String(256), primary_key=True)
@@ -131,6 +136,7 @@ class Span(Base):
             f"status IN ({_values(ExecutionStatus)})",
             name="ck_spans_status",
         ),
+        Index("ix_spans_parent_span_id", "parent_span_id"),
     )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
@@ -164,6 +170,8 @@ class ToolCall(Base):
             f"status IN ({_values(ExecutionStatus)})",
             name="ck_tool_calls_status",
         ),
+        Index("ix_tool_calls_span_id", "span_id"),
+        Index("ix_tool_calls_tool_name_status", "tool_name", "status"),
     )
 
     run_id: Mapped[str] = mapped_column(
@@ -204,6 +212,8 @@ class LLMCall(Base):
             f"status IN ({_values(ExecutionStatus)})",
             name="ck_llm_calls_status",
         ),
+        Index("ix_llm_calls_span_id", "span_id"),
+        Index("ix_llm_calls_model", "model"),
     )
 
     run_id: Mapped[str] = mapped_column(

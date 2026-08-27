@@ -136,9 +136,9 @@ async def test_hitl_reingestion_preserves_carried_over_child_identity(
         assert approved_span_ids[span_id] == pending_span_ids[span_id]
 
     for tool_call_id in {tool_call.tool_call_id for tool_call in pending.tool_calls}:
-        assert approved_tool_span_ids[tool_call_id] == pending_tool_span_ids[
-            tool_call_id
-        ]
+        assert (
+            approved_tool_span_ids[tool_call_id] == pending_tool_span_ids[tool_call_id]
+        )
 
     for llm_call_id in {llm_call.llm_call_id for llm_call in pending.llm_calls}:
         assert approved_llm_span_ids[llm_call_id] == pending_llm_span_ids[llm_call_id]
@@ -274,9 +274,7 @@ async def test_ingestion_uses_one_upsert_statement_per_child_row(
     finally:
         sqlalchemy_event.remove(sync_engine, "before_cursor_execute", capture_sql)
 
-    assert len(statements) == len(run_event.spans) + len(
-        run_event.tool_calls
-    ) + len(
+    assert len(statements) == len(run_event.spans) + len(run_event.tool_calls) + len(
         run_event.llm_calls
     )
     assert all("ON CONFLICT" in statement for statement in statements)
