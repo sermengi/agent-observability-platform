@@ -12,7 +12,7 @@ from obs_platform.database import (
     wait_for_database,
 )
 from obs_platform.database import check_database as check_database_settings
-from obs_platform.routes import health, runs
+from obs_platform.routes import analytics, health, runs
 
 HealthCheck = Callable[[], Awaitable[None]]
 
@@ -55,6 +55,7 @@ def create_app(
         app.state.check_database = lambda: check_database_settings(settings.db)
     app.include_router(health.router)
     app.include_router(runs.router, prefix="/v1")
+    app.include_router(analytics.router, prefix="/v1")
     return app
 
 

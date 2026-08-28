@@ -163,3 +163,23 @@ class RunDetailResponse(APIResponseModel):
     runtime_error: ErrorResponse | None = Field(
         description="Populated when status is tool_error or runtime_error."
     )
+
+
+class RunCounts(APIResponseModel):
+    total: int
+    by_status: dict[RunStatus, int]
+
+
+class OverviewAnalyticsResponse(APIResponseModel):
+    runtime_success_rate: float | None = Field(
+        description="Populated when at least one terminal run is in scope."
+    )
+    avg_latency_ms: float | None = Field(
+        description="Populated when at least one run has execution latency in scope."
+    )
+    p95_latency_ms: float | None = Field(
+        description="Populated when at least one run has execution latency in scope."
+    )
+    usage_total_tokens: int
+    usage_total_estimated_cost_usd: float
+    run_counts: RunCounts

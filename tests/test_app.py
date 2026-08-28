@@ -7,7 +7,7 @@ from httpx import ASGITransport, AsyncClient
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from obs_platform.main import create_app
-from obs_platform.routes import health, runs
+from obs_platform.routes import analytics, health, runs
 from obs_platform.telemetry.v1 import load_fixture
 
 
@@ -184,14 +184,18 @@ async def test_routes_are_registered_with_expected_prefixes() -> None:
     paths = app.openapi()["paths"]
 
     assert "/health" in paths
+    assert "/v1/analytics/overview" in paths
     assert "/v1/runs" in paths
     assert "/v1/health" not in paths
     assert "/runs" not in paths
     assert set(paths["/health"]) == {"get"}
+    assert set(paths["/v1/analytics/overview"]) == {"get"}
     assert set(paths["/v1/runs"]) == {"get", "post"}
 
 
 async def test_route_modules_expose_separate_routers() -> None:
     assert isinstance(health.router, APIRouter)
+    assert isinstance(analytics.router, APIRouter)
     assert isinstance(runs.router, APIRouter)
     assert health.router is not runs.router
+    assert analytics.router is not runs.router
