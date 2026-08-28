@@ -188,7 +188,7 @@ async def test_routes_are_registered_with_expected_prefixes() -> None:
     assert "/v1/health" not in paths
     assert "/runs" not in paths
     assert set(paths["/health"]) == {"get"}
-    assert set(paths["/v1/runs"]) == {"post"}
+    assert set(paths["/v1/runs"]) == {"get", "post"}
 
 
 async def test_route_modules_expose_separate_routers() -> None:
