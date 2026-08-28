@@ -4,21 +4,13 @@ import pytest
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-from obs_platform.config import DatabaseSettings
+from obs_platform.config import DatabaseOnlySettings
 from obs_platform.database import create_engine
 
 
 @pytest.fixture
 async def session() -> AsyncIterator[AsyncSession]:
-    engine = create_engine(
-        DatabaseSettings(
-            host="localhost",
-            port=5432,
-            user="observability",
-            password="change-me",
-            name="observability",
-        )
-    )
+    engine = create_engine(DatabaseOnlySettings().db)
     session_factory = async_sessionmaker(engine, expire_on_commit=False)
     async with session_factory() as db_session:
         yield db_session

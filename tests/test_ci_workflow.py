@@ -11,6 +11,7 @@ def test_github_actions_workflow_runs_phase_0_checks_sequentially() -> None:
     lint_index = workflow.index("uv run ruff check .")
     format_index = workflow.index("uv run ruff format --check .")
     typecheck_index = workflow.index("uv run mypy src tests")
+    migration_index = workflow.index("uv run alembic upgrade head")
     test_index = workflow.index("uv run pytest")
     docker_build_index = workflow.index("docker build -t obs-platform-api:ci .")
 
@@ -26,6 +27,7 @@ def test_github_actions_workflow_runs_phase_0_checks_sequentially() -> None:
         < lint_index
         < format_index
         < typecheck_index
+        < migration_index
         < test_index
         < docker_build_index
     )

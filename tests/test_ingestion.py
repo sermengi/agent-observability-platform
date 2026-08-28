@@ -10,7 +10,7 @@ from sqlalchemy import event as sqlalchemy_event
 from sqlalchemy.engine import Engine
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-from obs_platform.config import DatabaseSettings
+from obs_platform.config import DatabaseOnlySettings
 from obs_platform.database import create_engine
 from obs_platform.db.models import AgentRun, LLMCall, Span, ToolCall
 from obs_platform.ingestion.runs import HITLStateRegressionError, ingest_run_event
@@ -32,15 +32,7 @@ CANONICAL_FIXTURES = (
 
 @pytest.fixture
 async def session() -> AsyncIterator[AsyncSession]:
-    engine = create_engine(
-        DatabaseSettings(
-            host="localhost",
-            port=5432,
-            user="observability",
-            password="change-me",
-            name="observability",
-        )
-    )
+    engine = create_engine(DatabaseOnlySettings().db)
     session_factory = async_sessionmaker(engine, expire_on_commit=False)
     async with session_factory() as db_session:
         yield db_session
