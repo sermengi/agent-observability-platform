@@ -3,6 +3,7 @@ from pathlib import Path
 
 def test_github_actions_workflow_runs_phase_0_checks_sequentially() -> None:
     workflow_path = Path(".github/workflows/ci.yml")
+    pyproject = Path("pyproject.toml").read_text()
 
     assert workflow_path.exists()
 
@@ -22,6 +23,7 @@ def test_github_actions_workflow_runs_phase_0_checks_sequentially() -> None:
     assert "postgres:" in workflow
     assert "image: postgres:16" in workflow
     assert "docker compose up" not in workflow
+    assert 'exclude = ["notebooks"]' in pyproject
     assert (
         install_index
         < lint_index
