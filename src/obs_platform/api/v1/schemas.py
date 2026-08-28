@@ -27,9 +27,15 @@ class RunSummary(APIResponseModel):
     event_type: RunEventType
     hitl_state: HITLState
     started_at: datetime
-    completed_at: datetime | None
-    execution_latency_ms: int | None
-    wall_clock_duration_ms: int | None
+    completed_at: datetime | None = Field(
+        description="Populated once the run reaches a terminal state."
+    )
+    execution_latency_ms: int | None = Field(
+        description="Populated once the run reaches a terminal state."
+    )
+    wall_clock_duration_ms: int | None = Field(
+        description="Populated once the run reaches a terminal state."
+    )
     usage_total_tokens: int
     usage_total_estimated_cost_usd: float
 
@@ -54,7 +60,9 @@ class SpanResponse(APIResponseModel):
     name: str
     sequence: int
     started_at: datetime
-    completed_at: datetime | None
+    completed_at: datetime | None = Field(
+        description="Populated once the span completes."
+    )
     status: ExecutionStatus
     input: dict[str, Any] | None
     output: dict[str, Any] | None
@@ -73,7 +81,9 @@ class ToolCallResponse(APIResponseModel):
     result: dict[str, Any] | None
     started_at: datetime
     completed_at: datetime
-    latency_ms: int | None
+    latency_ms: int | None = Field(
+        description="Populated once the tool call completes."
+    )
     retry_count: int
     status: ExecutionStatus
     error: ErrorResponse | None = Field(
@@ -90,11 +100,21 @@ class LLMCallResponse(APIResponseModel):
     provider: str
     started_at: datetime
     completed_at: datetime
-    latency_ms: int | None
-    prompt_tokens: int | None
-    completion_tokens: int | None
-    total_tokens: int | None
-    estimated_cost_usd: float | None
+    latency_ms: int | None = Field(
+        description="Populated once the LLM call completes."
+    )
+    prompt_tokens: int | None = Field(
+        description="Populated once the LLM call completes."
+    )
+    completion_tokens: int | None = Field(
+        description="Populated once the LLM call completes."
+    )
+    total_tokens: int | None = Field(
+        description="Populated once the LLM call completes."
+    )
+    estimated_cost_usd: float | None = Field(
+        description="Populated once the LLM call completes."
+    )
     input_payload: dict[str, Any] | None
     output_payload: dict[str, Any] | None
     status: ExecutionStatus
@@ -148,9 +168,15 @@ class RunDetailResponse(APIResponseModel):
     raw_input: Any
     normalized_input: str | None
     started_at: datetime
-    completed_at: datetime | None
-    execution_latency_ms: int | None
-    wall_clock_duration_ms: int | None
+    completed_at: datetime | None = Field(
+        description="Populated once the run reaches a terminal state."
+    )
+    execution_latency_ms: int | None = Field(
+        description="Populated once the run reaches a terminal state."
+    )
+    wall_clock_duration_ms: int | None = Field(
+        description="Populated once the run reaches a terminal state."
+    )
     resume_count: int
     spans: list[SpanResponse]
     tool_calls: list[ToolCallResponse]

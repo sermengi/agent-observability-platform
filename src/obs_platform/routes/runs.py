@@ -1,13 +1,13 @@
-from collections.abc import AsyncIterator
 from datetime import datetime
 from typing import Annotated, cast
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Request
+from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, Field
 from sqlalchemy import exists, func, select
-from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker
+from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.sql import ColumnElement
 
+from obs_platform.api.deps import get_session
 from obs_platform.api.v1.schemas import (
     ErrorResponse,
     FinalResultResponse,
@@ -25,13 +25,6 @@ from obs_platform.telemetry.v1.enums import RunStatus
 from obs_platform.telemetry.v1.models import ExtendedRunEvent
 
 router = APIRouter()
-
-
-async def get_session(request: Request) -> AsyncIterator[AsyncSession]:
-    engine = cast(AsyncEngine, request.app.state.db_engine)
-    session_factory = async_sessionmaker(engine, expire_on_commit=False)
-    async with session_factory() as session:
-        yield session
 
 
 class IngestRunResponse(BaseModel):
