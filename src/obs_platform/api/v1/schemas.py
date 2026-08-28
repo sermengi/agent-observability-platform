@@ -183,3 +183,22 @@ class OverviewAnalyticsResponse(APIResponseModel):
     usage_total_tokens: int
     usage_total_estimated_cost_usd: float
     run_counts: RunCounts
+
+
+class ToolStats(APIResponseModel):
+    tool_name: str
+    call_count: int
+    success_count: int
+    failure_count: int
+    error_count: int
+    failure_rate: float
+    avg_latency_ms: float | None = Field(
+        description="Populated when at least one call for the tool has latency."
+    )
+    p95_latency_ms: float | None = Field(
+        description="Populated when at least one call for the tool has latency."
+    )
+
+
+class ToolAnalyticsResponse(APIResponseModel):
+    items: list[ToolStats]

@@ -8,9 +8,14 @@ from sqlalchemy import case, func, select
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker
 from sqlalchemy.sql import ColumnElement
 
-from obs_platform.api.v1.schemas import OverviewAnalyticsResponse, RunCounts
-from obs_platform.db.models import AgentRun
-from obs_platform.telemetry.v1.enums import RunEventType, RunStatus
+from obs_platform.api.v1.schemas import (
+    OverviewAnalyticsResponse,
+    RunCounts,
+    ToolAnalyticsResponse,
+    ToolStats,
+)
+from obs_platform.db.models import AgentRun, ToolCall
+from obs_platform.telemetry.v1.enums import ExecutionStatus, RunEventType, RunStatus
 
 router = APIRouter()
 
@@ -101,6 +106,63 @@ async def get_overview(
         usage_total_tokens=aggregate_row.tokens,
         usage_total_estimated_cost_usd=aggregate_row.cost,
         run_counts=RunCounts(total=aggregate_row.total, by_status=status_counts),
+    )
+
+
+@router.get(
+    "/analytics/tools",
+    response_model=ToolAnalyticsResponse,
+    summary="Get tool analytics",
+)
+async def get_tools(
+    params: Annotated[AnalyticsTimeRangeParams, Query()],
+    session: AsyncSession = Depends(get_session),
+) -> ToolAnalyticsResponse:
+    filters = _time_range_filters(params)
+    rows = await session.execute(
+        select(
+            ToolCall.tool_name.label("tool_name"),
+            func.count().label("call_count"),
+            func.count()
+            .filter(ToolCall.status == ExecutionStatus.SUCCESS.value)
+            .label("success_count"),
+            func.count()
+            .filter(ToolCall.status == ExecutionStatus.FAILURE.value)
+            .label("failure_count"),
+            func.count()
+            .filter(ToolCall.status == ExecutionStatus.ERROR.value)
+            .label("error_count"),
+            func.avg(ToolCall.latency_ms).label("avg_latency"),
+            func.percentile_cont(0.95)
+            .within_group(ToolCall.latency_ms)
+            .filter(ToolCall.latency_ms.is_not(None))
+            .label("p95_latency"),
+        )
+        .select_from(ToolCall)
+        .join(AgentRun, AgentRun.run_id == ToolCall.run_id)
+        .where(*filters)
+        .group_by(ToolCall.tool_name)
+        .order_by(func.count().desc(), ToolCall.tool_name.asc())
+    )
+
+    return ToolAnalyticsResponse(
+        items=[
+            ToolStats(
+                tool_name=row.tool_name,
+                call_count=row.call_count,
+                success_count=row.success_count,
+                failure_count=row.failure_count,
+                error_count=row.error_count,
+                failure_rate=(row.failure_count + row.error_count) / row.call_count,
+                avg_latency_ms=(
+                    float(row.avg_latency) if row.avg_latency is not None else None
+                ),
+                p95_latency_ms=(
+                    float(row.p95_latency) if row.p95_latency is not None else None
+                ),
+            )
+            for row in rows
+        ]
     )
 
 

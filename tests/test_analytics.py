@@ -13,6 +13,7 @@ from obs_platform.ingestion.runs import ingest_run_event
 from obs_platform.main import create_app
 from obs_platform.routes import analytics, runs
 from obs_platform.telemetry.v1 import ExtendedRunEvent, load_fixture
+from obs_platform.telemetry.v1.enums import ExecutionStatus
 
 
 @pytest.fixture
@@ -232,6 +233,95 @@ async def test_overview_analytics_openapi_exposes_only_time_range_params(
     }
 
 
+async def test_tool_analytics_returns_one_row_per_present_tool_with_counts(
+    session: AsyncSession,
+    analytics_client: AsyncClient,
+) -> None:
+    run_id = "phase3-tools-counts"
+    await _seed_tool_analytics_run(
+        session,
+        run_id,
+        started_at=datetime(2044, 1, 1, tzinfo=UTC),
+    )
+
+    response = await analytics_client.get(
+        "/v1/analytics/tools",
+        params={
+            "started_after": "2044-01-01T00:00:00Z",
+            "started_before": "2044-01-01T23:59:59Z",
+        },
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert [item["tool_name"] for item in body["items"]] == [
+        "alpha_tool",
+        "beta_tool",
+        "gamma_tool",
+    ]
+    assert body["items"][0] == {
+        "tool_name": "alpha_tool",
+        "call_count": 3,
+        "success_count": 1,
+        "failure_count": 1,
+        "error_count": 1,
+        "failure_rate": 2 / 3,
+        "avg_latency_ms": 200.0,
+        "p95_latency_ms": 290.0,
+    }
+    assert "absent_tool" not in {item["tool_name"] for item in body["items"]}
+
+    await _delete_runs(session, [run_id])
+
+
+async def test_tool_analytics_time_range_excludes_out_of_scope_tool_names(
+    session: AsyncSession,
+    analytics_client: AsyncClient,
+) -> None:
+    in_scope_run_id = "phase3-tools-in-scope"
+    out_of_scope_run_id = "phase3-tools-out-of-scope"
+    await _delete_runs(session, [in_scope_run_id, out_of_scope_run_id])
+    await _seed_tool_analytics_run(
+        session,
+        in_scope_run_id,
+        started_at=datetime(2044, 2, 1, tzinfo=UTC),
+    )
+    await _seed_tool_analytics_run(
+        session,
+        out_of_scope_run_id,
+        started_at=datetime(2044, 2, 2, tzinfo=UTC),
+        tool_prefix="outside",
+    )
+
+    response = await analytics_client.get(
+        "/v1/analytics/tools",
+        params={
+            "started_after": "2044-02-01T00:00:00Z",
+            "started_before": "2044-02-01T23:59:59Z",
+        },
+    )
+
+    assert response.status_code == 200
+    tool_names = {item["tool_name"] for item in response.json()["items"]}
+    assert tool_names == {"alpha_tool", "beta_tool", "gamma_tool"}
+    assert "outside_alpha_tool" not in tool_names
+
+    await _delete_runs(session, [in_scope_run_id, out_of_scope_run_id])
+
+
+async def test_tool_analytics_openapi_exposes_only_time_range_params(
+    analytics_client: AsyncClient,
+) -> None:
+    response = await analytics_client.get("/openapi.json")
+
+    assert response.status_code == 200
+    params = response.json()["paths"]["/v1/analytics/tools"]["get"]["parameters"]
+    assert {param["name"] for param in params} == {
+        "started_after",
+        "started_before",
+    }
+
+
 def _fixture_with_run_id(name: str, run_id: str) -> ExtendedRunEvent:
     event = load_fixture(name)
     event.run_id = run_id
@@ -253,6 +343,46 @@ def _overview_event(
 async def _delete_runs(session: AsyncSession, run_ids: list[str]) -> None:
     for model in (LLMCall, ToolCall, Span, AgentRun):
         await session.execute(delete(model).where(model.run_id.in_(run_ids)))
+    await session.commit()
+
+
+async def _seed_tool_analytics_run(
+    session: AsyncSession,
+    run_id: str,
+    *,
+    started_at: datetime = datetime(2043, 1, 1, tzinfo=UTC),
+    tool_prefix: str = "",
+) -> None:
+    event = _overview_event("healthy_success", run_id, started_at=started_at)
+    await _delete_runs(session, [run_id])
+    await ingest_run_event(session, event)
+    span_id = await session.scalar(select(Span.id).where(Span.run_id == run_id))
+    assert span_id is not None
+    await session.execute(delete(ToolCall).where(ToolCall.run_id == run_id))
+    for tool_call_id, tool_name, status, latency_ms in [
+        ("alpha-success", "alpha_tool", ExecutionStatus.SUCCESS, 100),
+        ("alpha-failure", "alpha_tool", ExecutionStatus.FAILURE, 200),
+        ("alpha-error", "alpha_tool", ExecutionStatus.ERROR, 300),
+        ("beta-success-1", "beta_tool", ExecutionStatus.SUCCESS, 50),
+        ("beta-success-2", "beta_tool", ExecutionStatus.SUCCESS, 150),
+        ("gamma-success", "gamma_tool", ExecutionStatus.SUCCESS, None),
+    ]:
+        session.add(
+            ToolCall(
+                run_id=run_id,
+                tool_call_id=f"{run_id}-{tool_call_id}",
+                span_id=span_id,
+                tool_name=f"{tool_prefix}_{tool_name}" if tool_prefix else tool_name,
+                sequence=len(session.new) + 1,
+                arguments={"source": "test"},
+                result={"ok": status is ExecutionStatus.SUCCESS},
+                started_at=started_at,
+                completed_at=started_at,
+                latency_ms=latency_ms,
+                retry_count=0,
+                status=status.value,
+            )
+        )
     await session.commit()
 
 

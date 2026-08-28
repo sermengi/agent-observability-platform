@@ -185,11 +185,13 @@ async def test_routes_are_registered_with_expected_prefixes() -> None:
 
     assert "/health" in paths
     assert "/v1/analytics/overview" in paths
+    assert "/v1/analytics/tools" in paths
     assert "/v1/runs" in paths
     assert "/v1/health" not in paths
     assert "/runs" not in paths
     assert set(paths["/health"]) == {"get"}
     assert set(paths["/v1/analytics/overview"]) == {"get"}
+    assert set(paths["/v1/analytics/tools"]) == {"get"}
     assert set(paths["/v1/runs"]) == {"get", "post"}
 
 
