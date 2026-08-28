@@ -1,6 +1,6 @@
 from collections.abc import AsyncIterator
 from datetime import datetime
-from typing import Annotated, cast
+from typing import Annotated, Any, cast
 
 from fastapi import APIRouter, Depends, Query, Request
 from pydantic import BaseModel
@@ -9,13 +9,22 @@ from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker
 from sqlalchemy.sql import ColumnElement
 
 from obs_platform.api.v1.schemas import (
+    CallTypeUsageBreakdown,
+    ModelUsageBreakdown,
     OverviewAnalyticsResponse,
     RunCounts,
     ToolAnalyticsResponse,
     ToolStats,
+    UsageAnalyticsResponse,
+    UsageTotals,
 )
-from obs_platform.db.models import AgentRun, ToolCall
-from obs_platform.telemetry.v1.enums import ExecutionStatus, RunEventType, RunStatus
+from obs_platform.db.models import AgentRun, LLMCall, ToolCall
+from obs_platform.telemetry.v1.enums import (
+    ExecutionStatus,
+    LLMCallType,
+    RunEventType,
+    RunStatus,
+)
 
 router = APIRouter()
 
@@ -166,6 +175,105 @@ async def get_tools(
     )
 
 
+@router.get(
+    "/analytics/usage",
+    response_model=UsageAnalyticsResponse,
+    summary="Get LLM usage analytics",
+)
+async def get_usage(
+    params: Annotated[AnalyticsTimeRangeParams, Query()],
+    session: AsyncSession = Depends(get_session),
+) -> UsageAnalyticsResponse:
+    filters = _time_range_filters(params)
+    total_row = (
+        await session.execute(
+            select(
+                func.count().label("call_count"),
+                func.coalesce(func.sum(LLMCall.prompt_tokens), 0).label(
+                    "prompt_tokens"
+                ),
+                func.coalesce(func.sum(LLMCall.completion_tokens), 0).label(
+                    "completion_tokens"
+                ),
+                func.coalesce(func.sum(LLMCall.total_tokens), 0).label(
+                    "total_tokens"
+                ),
+                func.coalesce(func.sum(LLMCall.estimated_cost_usd), 0.0).label(
+                    "total_estimated_cost_usd"
+                ),
+            )
+            .select_from(LLMCall)
+            .join(AgentRun, AgentRun.run_id == LLMCall.run_id)
+            .where(*filters)
+        )
+    ).one()
+    by_model_rows = await session.execute(
+        select(
+            LLMCall.provider.label("provider"),
+            LLMCall.model.label("model"),
+            func.count().label("call_count"),
+            func.coalesce(func.sum(LLMCall.prompt_tokens), 0).label("prompt_tokens"),
+            func.coalesce(func.sum(LLMCall.completion_tokens), 0).label(
+                "completion_tokens"
+            ),
+            func.coalesce(func.sum(LLMCall.total_tokens), 0).label("total_tokens"),
+            func.coalesce(func.sum(LLMCall.estimated_cost_usd), 0.0).label(
+                "total_estimated_cost_usd"
+            ),
+        )
+        .select_from(LLMCall)
+        .join(AgentRun, AgentRun.run_id == LLMCall.run_id)
+        .where(*filters)
+        .group_by(LLMCall.provider, LLMCall.model)
+        .order_by(
+            func.coalesce(func.sum(LLMCall.estimated_cost_usd), 0.0).desc(),
+            LLMCall.provider.asc(),
+            LLMCall.model.asc(),
+        )
+    )
+    by_call_type_rows = await session.execute(
+        select(
+            LLMCall.call_type.label("call_type"),
+            func.count().label("call_count"),
+            func.coalesce(func.sum(LLMCall.prompt_tokens), 0).label("prompt_tokens"),
+            func.coalesce(func.sum(LLMCall.completion_tokens), 0).label(
+                "completion_tokens"
+            ),
+            func.coalesce(func.sum(LLMCall.total_tokens), 0).label("total_tokens"),
+            func.coalesce(func.sum(LLMCall.estimated_cost_usd), 0.0).label(
+                "total_estimated_cost_usd"
+            ),
+        )
+        .select_from(LLMCall)
+        .join(AgentRun, AgentRun.run_id == LLMCall.run_id)
+        .where(*filters)
+        .group_by(LLMCall.call_type)
+        .order_by(
+            func.coalesce(func.sum(LLMCall.estimated_cost_usd), 0.0).desc(),
+            LLMCall.call_type.asc(),
+        )
+    )
+
+    return UsageAnalyticsResponse(
+        total=_usage_totals(total_row),
+        by_model=[
+            ModelUsageBreakdown(
+                provider=row.provider,
+                model=row.model,
+                **_usage_totals(row).model_dump(),
+            )
+            for row in by_model_rows
+        ],
+        by_call_type=[
+            CallTypeUsageBreakdown(
+                call_type=LLMCallType(row.call_type),
+                **_usage_totals(row).model_dump(),
+            )
+            for row in by_call_type_rows
+        ],
+    )
+
+
 def _time_range_filters(
     params: AnalyticsTimeRangeParams,
 ) -> list[ColumnElement[bool]]:
@@ -175,3 +283,13 @@ def _time_range_filters(
     if params.started_before is not None:
         filters.append(AgentRun.started_at <= params.started_before)
     return filters
+
+
+def _usage_totals(row: Any) -> UsageTotals:
+    return UsageTotals(
+        call_count=row.call_count,
+        prompt_tokens=row.prompt_tokens,
+        completion_tokens=row.completion_tokens,
+        total_tokens=row.total_tokens,
+        total_estimated_cost_usd=float(row.total_estimated_cost_usd),
+    )

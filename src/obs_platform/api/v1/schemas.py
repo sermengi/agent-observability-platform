@@ -202,3 +202,26 @@ class ToolStats(APIResponseModel):
 
 class ToolAnalyticsResponse(APIResponseModel):
     items: list[ToolStats]
+
+
+class UsageTotals(APIResponseModel):
+    call_count: int
+    prompt_tokens: int
+    completion_tokens: int
+    total_tokens: int
+    total_estimated_cost_usd: float
+
+
+class ModelUsageBreakdown(UsageTotals):
+    provider: str
+    model: str
+
+
+class CallTypeUsageBreakdown(UsageTotals):
+    call_type: LLMCallType
+
+
+class UsageAnalyticsResponse(APIResponseModel):
+    total: UsageTotals
+    by_model: list[ModelUsageBreakdown]
+    by_call_type: list[CallTypeUsageBreakdown]

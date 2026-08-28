@@ -13,7 +13,7 @@ from obs_platform.ingestion.runs import ingest_run_event
 from obs_platform.main import create_app
 from obs_platform.routes import analytics, runs
 from obs_platform.telemetry.v1 import ExtendedRunEvent, load_fixture
-from obs_platform.telemetry.v1.enums import ExecutionStatus
+from obs_platform.telemetry.v1.enums import ExecutionStatus, LLMCallType
 
 
 @pytest.fixture
@@ -322,6 +322,167 @@ async def test_tool_analytics_openapi_exposes_only_time_range_params(
     }
 
 
+async def test_usage_analytics_returns_totals_model_and_call_type_breakdowns(
+    session: AsyncSession,
+    analytics_client: AsyncClient,
+) -> None:
+    run_id = "phase3-usage-breakdowns"
+    await _seed_usage_analytics_run(
+        session,
+        run_id,
+        started_at=datetime(2045, 1, 1, tzinfo=UTC),
+    )
+
+    response = await analytics_client.get(
+        "/v1/analytics/usage",
+        params={
+            "started_after": "2045-01-01T00:00:00Z",
+            "started_before": "2045-01-01T23:59:59Z",
+        },
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["total"] == {
+        "call_count": 4,
+        "prompt_tokens": 42,
+        "completion_tokens": 18,
+        "total_tokens": 60,
+        "total_estimated_cost_usd": pytest.approx(0.95),
+    }
+    assert sum(item["total_tokens"] for item in body["by_model"]) == 60
+    assert sum(item["total_tokens"] for item in body["by_call_type"]) == 60
+
+    await _delete_runs(session, [run_id])
+
+
+async def test_usage_analytics_groups_by_provider_model_pair(
+    session: AsyncSession,
+    analytics_client: AsyncClient,
+) -> None:
+    run_id = "phase3-usage-provider-model"
+    await _seed_usage_analytics_run(
+        session,
+        run_id,
+        started_at=datetime(2045, 2, 1, tzinfo=UTC),
+    )
+
+    response = await analytics_client.get(
+        "/v1/analytics/usage",
+        params={
+            "started_after": "2045-02-01T00:00:00Z",
+            "started_before": "2045-02-01T23:59:59Z",
+        },
+    )
+
+    assert response.status_code == 200
+    by_model = response.json()["by_model"]
+    assert [
+        (item["provider"], item["model"], item["call_count"])
+        for item in by_model
+    ] == [
+        ("openai", "premium-model", 1),
+        ("openai", "shared-model", 2),
+        ("anthropic", "shared-model", 1),
+    ]
+
+    await _delete_runs(session, [run_id])
+
+
+async def test_usage_analytics_call_type_breakdown_only_contains_present_values(
+    session: AsyncSession,
+    analytics_client: AsyncClient,
+) -> None:
+    run_id = "phase3-usage-call-types"
+    await _seed_usage_analytics_run(
+        session,
+        run_id,
+        started_at=datetime(2045, 3, 1, tzinfo=UTC),
+    )
+
+    response = await analytics_client.get(
+        "/v1/analytics/usage",
+        params={
+            "started_after": "2045-03-01T00:00:00Z",
+            "started_before": "2045-03-01T23:59:59Z",
+        },
+    )
+
+    assert response.status_code == 200
+    by_call_type = response.json()["by_call_type"]
+    assert [item["call_type"] for item in by_call_type] == [
+        "synthesis",
+        "interpretation",
+    ]
+    assert "evidence_gathering" not in {
+        item["call_type"] for item in by_call_type
+    }
+
+    await _delete_runs(session, [run_id])
+
+
+async def test_usage_analytics_time_range_scopes_llm_calls_by_run_started_at(
+    session: AsyncSession,
+    analytics_client: AsyncClient,
+) -> None:
+    in_scope_run_id = "phase3-usage-in-scope"
+    out_of_scope_run_id = "phase3-usage-out-of-scope"
+    await _seed_usage_analytics_run(
+        session,
+        in_scope_run_id,
+        started_at=datetime(2045, 4, 1, tzinfo=UTC),
+    )
+    await _seed_usage_analytics_run(
+        session,
+        out_of_scope_run_id,
+        started_at=datetime(2045, 4, 2, tzinfo=UTC),
+        provider_prefix="outside",
+    )
+
+    response = await analytics_client.get(
+        "/v1/analytics/usage",
+        params={
+            "started_after": "2045-04-01T00:00:00Z",
+            "started_before": "2045-04-01T23:59:59Z",
+        },
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["total"]["call_count"] == 4
+    assert {item["provider"] for item in body["by_model"]} == {
+        "anthropic",
+        "openai",
+    }
+
+    await _delete_runs(session, [in_scope_run_id, out_of_scope_run_id])
+
+
+async def test_usage_analytics_response_shape_has_no_latency_fields(
+    session: AsyncSession,
+    analytics_client: AsyncClient,
+) -> None:
+    run_id = "phase3-usage-no-latency"
+    await _seed_usage_analytics_run(
+        session,
+        run_id,
+        started_at=datetime(2045, 5, 1, tzinfo=UTC),
+    )
+
+    response = await analytics_client.get(
+        "/v1/analytics/usage",
+        params={
+            "started_after": "2045-05-01T00:00:00Z",
+            "started_before": "2045-05-01T23:59:59Z",
+        },
+    )
+
+    assert response.status_code == 200
+    assert not _contains_key_fragment(response.json(), "latency")
+
+    await _delete_runs(session, [run_id])
+
+
 def _fixture_with_run_id(name: str, run_id: str) -> ExtendedRunEvent:
     event = load_fixture(name)
     event.run_id = run_id
@@ -386,6 +547,90 @@ async def _seed_tool_analytics_run(
     await session.commit()
 
 
+async def _seed_usage_analytics_run(
+    session: AsyncSession,
+    run_id: str,
+    *,
+    started_at: datetime,
+    provider_prefix: str = "",
+) -> None:
+    event = _overview_event("healthy_success", run_id, started_at=started_at)
+    await _delete_runs(session, [run_id])
+    await ingest_run_event(session, event)
+    span_id = await session.scalar(select(Span.id).where(Span.run_id == run_id))
+    assert span_id is not None
+    await session.execute(delete(LLMCall).where(LLMCall.run_id == run_id))
+    for (
+        llm_call_id,
+        provider,
+        model,
+        call_type,
+        prompt_tokens,
+        completion_tokens,
+        estimated_cost_usd,
+    ) in [
+        (
+            "openai-shared-one",
+            "openai",
+            "shared-model",
+            LLMCallType.INTERPRETATION,
+            10,
+            5,
+            0.10,
+        ),
+        (
+            "openai-shared-two",
+            "openai",
+            "shared-model",
+            LLMCallType.INTERPRETATION,
+            12,
+            6,
+            0.20,
+        ),
+        (
+            "anthropic-shared",
+            "anthropic",
+            "shared-model",
+            LLMCallType.INTERPRETATION,
+            8,
+            2,
+            0.15,
+        ),
+        (
+            "openai-premium",
+            "openai",
+            "premium-model",
+            LLMCallType.SYNTHESIS,
+            12,
+            5,
+            0.50,
+        ),
+    ]:
+        session.add(
+            LLMCall(
+                run_id=run_id,
+                llm_call_id=f"{run_id}-{llm_call_id}",
+                span_id=span_id,
+                call_type=call_type.value,
+                model=model,
+                provider=(
+                    f"{provider_prefix}_{provider}" if provider_prefix else provider
+                ),
+                started_at=started_at,
+                completed_at=started_at,
+                latency_ms=999,
+                prompt_tokens=prompt_tokens,
+                completion_tokens=completion_tokens,
+                total_tokens=prompt_tokens + completion_tokens,
+                estimated_cost_usd=estimated_cost_usd,
+                input_payload={"source": "test"},
+                output_payload={"ok": True},
+                status=ExecutionStatus.SUCCESS.value,
+            )
+        )
+    await session.commit()
+
+
 async def _expected_overview(
     session: AsyncSession,
     *,
@@ -441,3 +686,14 @@ def _percentile_cont(values: list[int], percentile: float) -> float | None:
         return float(values[lower])
     fraction = index - lower
     return values[lower] + (values[upper] - values[lower]) * fraction
+
+
+def _contains_key_fragment(value: object, fragment: str) -> bool:
+    if isinstance(value, dict):
+        return any(
+            fragment in key or _contains_key_fragment(child, fragment)
+            for key, child in value.items()
+        )
+    if isinstance(value, list):
+        return any(_contains_key_fragment(item, fragment) for item in value)
+    return False
