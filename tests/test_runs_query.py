@@ -14,7 +14,7 @@ from obs_platform.db.models import AgentRun, LLMCall, Span, ToolCall
 from obs_platform.ingestion.runs import ingest_run_event
 from obs_platform.main import create_app
 from obs_platform.routes import runs
-from obs_platform.telemetry.v1 import ExtendedRunEvent, load_fixture
+from obs_platform.telemetry.v1 import ExtendedRunEvent, load_all_fixtures, load_fixture
 from obs_platform.telemetry.v1.enums import RunStatus
 from obs_platform.telemetry.v1.models import ExtendedRunEvent as TelemetryRunEvent
 
@@ -386,6 +386,37 @@ async def test_get_run_detail_hitl_reingestion_preserves_ids_and_appends_tool_ca
     await _delete_runs(session, [pending.run_id])
 
 
+async def test_get_runs_and_detail_reconstruct_phase_1_fixture_corpus(
+    session: AsyncSession,
+    query_client: AsyncClient,
+) -> None:
+    events = load_all_fixtures()
+    for fixture_name, event in events.items():
+        event.run_id = f"phase3-corpus-{fixture_name}"
+        event.agent_version = "phase3-corpus"
+    run_ids = [event.run_id for event in events.values()]
+    await _delete_runs(session, run_ids)
+    for event in events.values():
+        await ingest_run_event(session, event)
+
+    list_response = await query_client.get(
+        "/v1/runs",
+        params={"agent_version": "phase3-corpus", "limit": len(run_ids)},
+    )
+
+    assert list_response.status_code == 200
+    listed_run_ids = {item["run_id"] for item in list_response.json()["items"]}
+    assert listed_run_ids == set(run_ids)
+
+    for event in events.values():
+        detail_response = await query_client.get(f"/v1/runs/{event.run_id}")
+
+        assert detail_response.status_code == 200
+        _assert_detail_reconstructs_event(detail_response.json(), event)
+
+    await _delete_runs(session, run_ids)
+
+
 def _fixture_with_run_id(name: str, run_id: str) -> ExtendedRunEvent:
     event = load_fixture(name)
     event.run_id = run_id
@@ -428,6 +459,47 @@ def _started_at_values(body: dict[str, object]) -> list[str]:
 
 def _sequence_values(items: list[dict[str, object]]) -> list[int]:
     return [cast(int, item["sequence"]) for item in items]
+
+
+def _assert_detail_reconstructs_event(
+    detail: dict[str, object],
+    event: ExtendedRunEvent,
+) -> None:
+    expected = event.model_dump(mode="json")
+    for field in [
+        "run_id",
+        "scenario_id",
+        "agent_name",
+        "agent_version",
+        "prompt_version",
+        "environment",
+        "status",
+        "event_type",
+        "raw_input",
+        "normalized_input",
+        "started_at",
+        "completed_at",
+        "execution_latency_ms",
+        "wall_clock_duration_ms",
+        "resume_count",
+        "spans",
+        "tool_calls",
+        "hitl",
+        "usage",
+        "final_result",
+        "runtime_error",
+    ]:
+        assert detail[field] == expected[field]
+
+    expected_llm_calls = sorted(
+        expected["llm_calls"],
+        key=lambda item: (item["started_at"], item["llm_call_id"]),
+    )
+    actual_llm_calls = [
+        {key: value for key, value in item.items() if key != "sequence"}
+        for item in cast(list[dict[str, object]], detail["llm_calls"])
+    ]
+    assert actual_llm_calls == expected_llm_calls
 
 
 def _ids_by_sequence(items: list[dict[str, object]], id_field: str) -> list[str]:
