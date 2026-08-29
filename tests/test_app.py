@@ -262,8 +262,7 @@ def test_phase_3_response_models_live_in_api_schema_module() -> None:
     ]
 
     assert all(
-        model.__module__ == "obs_platform.api.v1.schemas"
-        for model in response_models
+        model.__module__ == "obs_platform.api.v1.schemas" for model in response_models
     )
 
 
@@ -276,14 +275,18 @@ def test_phase_3_response_models_reuse_telemetry_enums() -> None:
     assert schemas.LLMCallResponse.model_fields["status"].annotation is ExecutionStatus
     assert schemas.LLMCallResponse.model_fields["call_type"].annotation is LLMCallType
     assert schemas.HITLResponse.model_fields["state"].annotation is HITLState
-    assert _optional_value_type(
-        schemas.OverviewAnalyticsResponse.model_fields[
-            "runtime_success_rate"
-        ].annotation
-    ) is float
-    assert schemas.CallTypeUsageBreakdown.model_fields[
-        "call_type"
-    ].annotation is LLMCallType
+    assert (
+        _optional_value_type(
+            schemas.OverviewAnalyticsResponse.model_fields[
+                "runtime_success_rate"
+            ].annotation
+        )
+        is float
+    )
+    assert (
+        schemas.CallTypeUsageBreakdown.model_fields["call_type"].annotation
+        is LLMCallType
+    )
 
 
 def test_api_response_models_share_from_attributes_base() -> None:

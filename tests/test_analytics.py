@@ -378,8 +378,7 @@ async def test_usage_analytics_groups_by_provider_model_pair(
     assert response.status_code == 200
     by_model = response.json()["by_model"]
     assert [
-        (item["provider"], item["model"], item["call_count"])
-        for item in by_model
+        (item["provider"], item["model"], item["call_count"]) for item in by_model
     ] == [
         ("openai", "premium-model", 1),
         ("openai", "shared-model", 2),
@@ -414,9 +413,7 @@ async def test_usage_analytics_call_type_breakdown_only_contains_present_values(
         "synthesis",
         "interpretation",
     ]
-    assert "evidence_gathering" not in {
-        item["call_type"] for item in by_call_type
-    }
+    assert "evidence_gathering" not in {item["call_type"] for item in by_call_type}
 
     await _delete_runs(session, [run_id])
 

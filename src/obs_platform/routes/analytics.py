@@ -48,9 +48,7 @@ async def get_overview(
         await session.execute(
             select(
                 func.count().label("total"),
-                func.coalesce(func.sum(AgentRun.usage_total_tokens), 0).label(
-                    "tokens"
-                ),
+                func.coalesce(func.sum(AgentRun.usage_total_tokens), 0).label("tokens"),
                 func.coalesce(
                     func.sum(AgentRun.usage_total_estimated_cost_usd),
                     0.0,
@@ -66,9 +64,7 @@ async def get_overview(
                 func.sum(
                     case(
                         (
-                            (
-                                AgentRun.event_type == RunEventType.RUN_FINAL.value
-                            )
+                            (AgentRun.event_type == RunEventType.RUN_FINAL.value)
                             & (AgentRun.status == RunStatus.SUCCESS.value),
                             1,
                         ),
@@ -81,9 +77,7 @@ async def get_overview(
         )
     ).one()
     status_rows = await session.execute(
-        select(AgentRun.status, func.count())
-        .where(*filters)
-        .group_by(AgentRun.status)
+        select(AgentRun.status, func.count()).where(*filters).group_by(AgentRun.status)
     )
     status_counts = {status: 0 for status in RunStatus}
     for status, count in status_rows:
@@ -188,9 +182,7 @@ async def get_usage(
                 func.coalesce(func.sum(LLMCall.completion_tokens), 0).label(
                     "completion_tokens"
                 ),
-                func.coalesce(func.sum(LLMCall.total_tokens), 0).label(
-                    "total_tokens"
-                ),
+                func.coalesce(func.sum(LLMCall.total_tokens), 0).label("total_tokens"),
                 func.coalesce(func.sum(LLMCall.estimated_cost_usd), 0.0).label(
                     "total_estimated_cost_usd"
                 ),

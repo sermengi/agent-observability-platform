@@ -100,9 +100,7 @@ class LLMCallResponse(APIResponseModel):
     provider: str
     started_at: datetime
     completed_at: datetime
-    latency_ms: int | None = Field(
-        description="Populated once the LLM call completes."
-    )
+    latency_ms: int | None = Field(description="Populated once the LLM call completes.")
     prompt_tokens: int | None = Field(
         description="Populated once the LLM call completes."
     )
