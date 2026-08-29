@@ -1,6 +1,7 @@
 """Deterministic evaluation primitives."""
 
 from obs_platform.evaluation.base import Evaluator
+from obs_platform.evaluation.evaluators import ToolExecutionEvaluator
 from obs_platform.evaluation.types import (
     EvaluationFinding,
     EvaluationResult,
@@ -20,4 +21,5 @@ __all__ = [
     "LLMCallView",
     "SpanView",
     "ToolCallView",
+    "ToolExecutionEvaluator",
 ]
