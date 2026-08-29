@@ -1,5 +1,6 @@
 from obs_platform.evaluation.base import Evaluator
 from obs_platform.evaluation.evaluators import (
+    EvidenceEvaluator,
     PolicyEvaluator,
     StructuredOutputEvaluator,
     ToolExecutionEvaluator,
@@ -11,4 +12,5 @@ DETERMINISTIC_EVALUATORS: list[Evaluator] = [
     StructuredOutputEvaluator(),
     TrajectoryEvaluator(),
     PolicyEvaluator(),
+    EvidenceEvaluator(),
 ]

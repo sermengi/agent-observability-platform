@@ -3,6 +3,7 @@
 from obs_platform.evaluation.base import Evaluator
 from obs_platform.evaluation.contracts import ScenarioContract, TerminalCondition
 from obs_platform.evaluation.evaluators import (
+    EvidenceEvaluator,
     PolicyEvaluator,
     StructuredOutputEvaluator,
     ToolExecutionEvaluator,
@@ -24,6 +25,7 @@ __all__ = [
     "EvaluationRunView",
     "Evaluator",
     "EvaluatorType",
+    "EvidenceEvaluator",
     "LLMCallView",
     "PolicyEvaluator",
     "ScenarioContract",

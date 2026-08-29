@@ -247,6 +247,53 @@ class PolicyEvaluator(Evaluator):
         )
 
 
+class EvidenceEvaluator(Evaluator):
+    name = "evidence"
+    version = "1.0.0"
+    type = EvaluatorType.DETERMINISTIC
+
+    def evaluate(self, run: EvaluationRunView) -> EvaluationResult:
+        if run.scenario_id is None or run.scenario_id not in SCENARIO_CONTRACTS:
+            return EvaluationResult(
+                passed=True,
+                score=None,
+                label="not_applicable",
+                severity=None,
+                reason="no scenario contract applies",
+                findings=[],
+            )
+
+        contract = SCENARIO_CONTRACTS[run.scenario_id]
+        required_evidence = contract.required_evidence
+        source_references = set(run.final_result_source_references or [])
+        matched_count = sum(
+            1 for evidence_id in required_evidence if evidence_id in source_references
+        )
+        findings = [
+            EvaluationFinding(
+                code="missing_required_evidence",
+                message=f"Required evidence {evidence_id} was not cited",
+                data={"evidence_id": evidence_id},
+            )
+            for evidence_id in required_evidence
+            if evidence_id not in source_references
+        ]
+
+        passed = not findings
+        total_required = len(required_evidence)
+        return EvaluationResult(
+            passed=passed,
+            score=(matched_count / total_required if total_required > 0 else None),
+            label="pass" if passed else "fail",
+            severity=None,
+            reason=(
+                f"{matched_count}/{total_required} "
+                "required evidence references found"
+            ),
+            findings=findings,
+        )
+
+
 def _finding_code(status: ExecutionStatus) -> str:
     if status is ExecutionStatus.FAILURE:
         return "tool_call_failed"
