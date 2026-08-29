@@ -9,6 +9,7 @@ from obs_platform.evaluation.evaluators import (
     ToolExecutionEvaluator,
     TrajectoryEvaluator,
 )
+from obs_platform.evaluation.persistence import persist_evaluation_result
 from obs_platform.evaluation.types import (
     EvaluationFinding,
     EvaluationResult,
@@ -35,4 +36,5 @@ __all__ = [
     "ToolCallView",
     "ToolExecutionEvaluator",
     "TrajectoryEvaluator",
+    "persist_evaluation_result",
 ]

@@ -272,7 +272,7 @@ class EvaluationResult(Base):
     label: Mapped[str | None] = mapped_column(Text)
     severity: Mapped[str | None] = mapped_column(Text)
     reason: Mapped[str | None] = mapped_column(Text)
-    findings: Mapped[dict[str, Any] | None] = mapped_column(JSONB)
+    findings: Mapped[list[dict[str, Any]] | None] = mapped_column(JSONB)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         nullable=False,
