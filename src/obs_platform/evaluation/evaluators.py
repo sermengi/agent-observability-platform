@@ -172,9 +172,7 @@ class TrajectoryEvaluator(Evaluator):
                 findings.append(
                     EvaluationFinding(
                         code="ordering_violation",
-                        message=(
-                            f"Tool {before_tool} did not run before {after_tool}"
-                        ),
+                        message=(f"Tool {before_tool} did not run before {after_tool}"),
                         data={
                             "before_tool": before_tool,
                             "after_tool": after_tool,
@@ -198,9 +196,7 @@ class TrajectoryEvaluator(Evaluator):
                     )
                 )
             expected_terminal_checks = _terminal_check_count(contract.terminal)
-            satisfied_constraints += expected_terminal_checks - len(
-                terminal_mismatches
-            )
+            satisfied_constraints += expected_terminal_checks - len(terminal_mismatches)
             total_constraints += expected_terminal_checks - len(terminal_mismatches)
 
         passed = not findings
@@ -287,8 +283,7 @@ class EvidenceEvaluator(Evaluator):
             label="pass" if passed else "fail",
             severity=None,
             reason=(
-                f"{matched_count}/{total_required} "
-                "required evidence references found"
+                f"{matched_count}/{total_required} required evidence references found"
             ),
             findings=findings,
         )

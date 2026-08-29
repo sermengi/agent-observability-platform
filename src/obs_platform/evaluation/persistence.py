@@ -23,9 +23,7 @@ async def persist_evaluation_result(
         label=result.label,
         severity=result.severity,
         reason=result.reason,
-        findings=[
-            finding.model_dump(mode="json") for finding in result.findings
-        ],
+        findings=[finding.model_dump(mode="json") for finding in result.findings],
         created_at=datetime.now(UTC),
     )
     session.add(record)

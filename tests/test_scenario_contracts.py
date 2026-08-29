@@ -163,9 +163,7 @@ def _view_from_event(event: ExtendedRunEvent) -> EvaluationRunView:
                     tool_call.error.category if tool_call.error else None
                 ),
                 "error_code": tool_call.error.code if tool_call.error else None,
-                "error_message": (
-                    tool_call.error.message if tool_call.error else None
-                ),
+                "error_message": (tool_call.error.message if tool_call.error else None),
                 "error_failed_component": (
                     tool_call.error.failed_component if tool_call.error else None
                 ),
