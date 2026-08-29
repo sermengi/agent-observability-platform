@@ -1,3 +1,7 @@
+import json
+from importlib.resources import files
+from typing import Any, cast
+
 from pydantic import Field
 
 from obs_platform.evaluation.types import EvaluationModel
@@ -21,4 +25,40 @@ class ScenarioContract(EvaluationModel):
     expected_asset_identity: str | None = None
 
 
-SCENARIO_CONTRACTS: dict[str, ScenarioContract] = {}
+CONTRACT_MANIFEST: dict[str, str] = {
+    "GS-08": "gs_08.json",
+    "GS-DEBUG-TRAJ-01": "gs_debug_traj_01.json",
+}
+
+
+class ScenarioContractNotFoundError(KeyError):
+    pass
+
+
+def load_scenario_contract(scenario_id: str) -> ScenarioContract:
+    try:
+        filename = CONTRACT_MANIFEST[scenario_id]
+    except KeyError as exc:
+        raise ScenarioContractNotFoundError(scenario_id) from exc
+
+    contract_path = files("obs_platform.evaluation.scenario_contracts").joinpath(
+        filename
+    )
+    payload = cast(dict[str, Any], json.loads(contract_path.read_text()))
+    contract = ScenarioContract.model_validate(payload)
+    if contract.scenario_id != scenario_id:
+        raise ValueError(
+            f"scenario contract {filename} declares {contract.scenario_id}, "
+            f"expected {scenario_id}"
+        )
+    return contract
+
+
+def load_scenario_contracts() -> dict[str, ScenarioContract]:
+    return {
+        scenario_id: load_scenario_contract(scenario_id)
+        for scenario_id in CONTRACT_MANIFEST
+    }
+
+
+SCENARIO_CONTRACTS: dict[str, ScenarioContract] = load_scenario_contracts()

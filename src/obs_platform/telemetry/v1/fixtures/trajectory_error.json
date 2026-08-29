@@ -56,6 +56,25 @@
       "retry_count": 0,
       "status": "success",
       "error": null
+    },
+    {
+      "tool_call_id": "tool-trajectory-status",
+      "span_id": "span-trajectory-root",
+      "tool_name": "get_asset_status",
+      "sequence": 2,
+      "arguments": {
+        "asset_id": "PUMP-101"
+      },
+      "result": {
+        "status": "degraded",
+        "fault_code": "FE-002"
+      },
+      "started_at": "2026-08-26T10:20:02.300000Z",
+      "completed_at": "2026-08-26T10:20:02.450000Z",
+      "latency_ms": 150,
+      "retry_count": 0,
+      "status": "success",
+      "error": null
     }
   ],
   "llm_calls": [
@@ -93,7 +112,7 @@
   },
   "usage": {
     "total_llm_calls": 1,
-    "total_tool_calls": 1,
+    "total_tool_calls": 2,
     "total_tokens": 17,
     "total_estimated_cost_usd": 0.000135,
     "total_retries": 0

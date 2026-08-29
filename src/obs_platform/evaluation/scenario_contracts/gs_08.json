@@ -1,0 +1,32 @@
+{
+  "scenario_id": "GS-08",
+  "required_tools": [
+    "resolve_asset",
+    "get_asset_status",
+    "get_maintenance_history",
+    "get_plant_policy",
+    "create_work_order_draft"
+  ],
+  "forbidden_tools": [],
+  "ordering_constraints": [
+    [
+      "resolve_asset",
+      "get_asset_status"
+    ],
+    [
+      "get_asset_status",
+      "get_maintenance_history"
+    ],
+    [
+      "get_maintenance_history",
+      "get_plant_policy"
+    ],
+    [
+      "get_plant_policy",
+      "create_work_order_draft"
+    ]
+  ],
+  "terminal": null,
+  "required_evidence": [],
+  "expected_asset_identity": "PUMP-103"
+}

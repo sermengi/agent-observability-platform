@@ -1,0 +1,22 @@
+{
+  "scenario_id": "GS-DEBUG-TRAJ-01",
+  "required_tools": [
+    "create_work_order_draft",
+    "get_asset_status"
+  ],
+  "forbidden_tools": [],
+  "ordering_constraints": [
+    [
+      "get_asset_status",
+      "create_work_order_draft"
+    ]
+  ],
+  "terminal": {
+    "expected_status": "success",
+    "expected_event_type": "run_final",
+    "expected_hitl_required": false,
+    "expected_hitl_state": "not_required"
+  },
+  "required_evidence": [],
+  "expected_asset_identity": "PUMP-101"
+}
