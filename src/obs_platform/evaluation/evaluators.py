@@ -5,7 +5,7 @@ from obs_platform.evaluation.types import (
     EvaluationRunView,
     EvaluatorType,
 )
-from obs_platform.telemetry.v1.enums import ExecutionStatus
+from obs_platform.telemetry.v1.enums import ExecutionStatus, RunStatus
 
 
 class ToolExecutionEvaluator(Evaluator):
@@ -48,6 +48,48 @@ class ToolExecutionEvaluator(Evaluator):
             severity=None,
             reason=f"{success_count}/{total_calls} tool calls succeeded",
             findings=findings,
+        )
+
+
+class StructuredOutputEvaluator(Evaluator):
+    name = "structured_output"
+    version = "1.0.0"
+    type = EvaluatorType.DETERMINISTIC
+
+    def evaluate(self, run: EvaluationRunView) -> EvaluationResult:
+        if run.status is not RunStatus.SUCCESS:
+            return EvaluationResult(
+                passed=True,
+                score=None,
+                label="not_applicable",
+                severity=None,
+                reason="final result output is not expected for this run status",
+                findings=[],
+            )
+
+        if run.final_result_output:
+            return EvaluationResult(
+                passed=True,
+                score=None,
+                label="pass",
+                severity=None,
+                reason="final result output is non-empty",
+                findings=[],
+            )
+
+        return EvaluationResult(
+            passed=False,
+            score=None,
+            label="fail",
+            severity=None,
+            reason="final result output is empty",
+            findings=[
+                EvaluationFinding(
+                    code="empty_output",
+                    message="Final result output is empty",
+                    data={"run_id": run.run_id},
+                )
+            ],
         )
 
 
