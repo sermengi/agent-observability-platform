@@ -31,7 +31,7 @@ async def test_initial_migration_is_empty_domain_bootstrap() -> None:
         "migrations/versions/20260825_0001_initial_empty_bootstrap.py"
     )
 
-    assert len(migration_files) == 3
+    assert len(migration_files) == 4
     migration = initial_migration.read_text()
     assert "op.create_table" not in migration
     assert "op.drop_table" not in migration
@@ -162,12 +162,14 @@ async def test_evaluation_results_regression_run_is_reserved_without_fk() -> Non
     assert "regression_runs" not in Base.metadata.tables
 
 
-async def test_phase_2_check_constraints_only_cover_locked_vocabularies() -> None:
+async def test_check_constraints_cover_locked_vocabularies() -> None:
     constrained_columns = {
         "agent_runs": ["event_type", "status", "hitl_state", "hitl_decision"],
         "spans": ["status"],
         "tool_calls": ["status"],
         "llm_calls": ["call_type", "status"],
+        "evaluation_results": ["status"],
+        "run_failures": ["overall_status"],
     }
 
     for table_name, column_names in constrained_columns.items():
@@ -176,7 +178,7 @@ async def test_phase_2_check_constraints_only_cover_locked_vocabularies() -> Non
             assert any(column_name in expression for expression in expressions)
 
     unconstrained_columns = {
-        "evaluation_results": ["status", "label", "severity"],
+        "evaluation_results": ["label", "severity"],
         "run_failures": ["primary_category", "secondary_category", "max_severity"],
     }
 
@@ -184,6 +186,18 @@ async def test_phase_2_check_constraints_only_cover_locked_vocabularies() -> Non
         expressions = _check_constraint_sql(Base.metadata.tables[table_name])
         for column_name in column_names:
             assert not any(column_name in expression for expression in expressions)
+
+
+async def test_phase_5_evaluation_status_snapshot_migration() -> None:
+    migration = Path(
+        "migrations/versions/20260830_0004_add_phase_5_evaluation_status_snapshot.py"
+    ).read_text()
+
+    assert 'down_revision: str | Sequence[str] | None = "20260827_0003"' in migration
+    assert '"overall_status"' in migration
+    assert '"classifier_version"' in migration
+    assert "ck_evaluation_results_status" in migration
+    assert "ck_run_failures_overall_status" in migration
 
 
 async def test_phase_2_jsonb_array_and_double_precision_columns() -> None:
@@ -318,9 +332,11 @@ async def test_phase_2_relational_policy_columns_are_not_jsonb() -> None:
         ],
         "run_failures": [
             "run_id",
+            "overall_status",
             "primary_category",
             "secondary_category",
             "max_severity",
+            "classifier_version",
             "updated_at",
         ],
     }

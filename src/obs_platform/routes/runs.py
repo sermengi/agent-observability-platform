@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import UTC, datetime
 from typing import Annotated, cast
 
 from fastapi import APIRouter, Depends, HTTPException, Query
@@ -10,21 +10,44 @@ from sqlalchemy.sql import ColumnElement
 from obs_platform.api.deps import get_session
 from obs_platform.api.v1.schemas import (
     ErrorResponse,
+    EvaluationTriggerResponse,
+    EvaluatorResultSummary,
     FinalResultResponse,
     HITLResponse,
     LLMCallResponse,
     RunDetailResponse,
+    RunFailureResponse,
     RunListResponse,
     SpanResponse,
     ToolCallResponse,
     UsageResponse,
 )
 from obs_platform.db.models import AgentRun, LLMCall, Span, ToolCall
+from obs_platform.evaluation.classifier import (
+    EvaluatorOutcome,
+    FailureClassifier,
+)
+from obs_platform.evaluation.persistence import (
+    persist_evaluation_result,
+    persist_run_failure,
+)
+from obs_platform.evaluation.registry import DETERMINISTIC_EVALUATORS
+from obs_platform.evaluation.types import (
+    EvaluationFinding,
+    EvaluationResult,
+    EvaluationRunView,
+    EvaluatorExecutionStatus,
+    LLMCallView,
+    SpanView,
+    ToolCallView,
+)
 from obs_platform.ingestion.runs import ingest_run_event
 from obs_platform.telemetry.v1.enums import RunStatus
 from obs_platform.telemetry.v1.models import ExtendedRunEvent
 
 router = APIRouter()
+
+__all__ = ["get_session", "router"]
 
 
 class IngestRunResponse(BaseModel):
@@ -83,6 +106,104 @@ async def create_run(
         run_id=result.run_id,
         event_type=result.event_type,
         status=result.status,
+    )
+
+
+@router.post(
+    "/runs/{run_id}/evaluate",
+    response_model=EvaluationTriggerResponse,
+    summary="Evaluate a run",
+)
+async def evaluate_run(
+    run_id: str,
+    session: AsyncSession = Depends(get_session),
+) -> EvaluationTriggerResponse:
+    run = await _evaluation_run_view(session, run_id)
+    if run is None:
+        raise HTTPException(status_code=404, detail="run not found")
+
+    evaluated_at = datetime.now(UTC)
+    outcomes: list[EvaluatorOutcome] = []
+    for evaluator in DETERMINISTIC_EVALUATORS:
+        try:
+            result = evaluator.evaluate(run)
+            status = EvaluatorExecutionStatus.COMPLETED
+        except Exception as exc:
+            result = _evaluator_exception_result(exc)
+            status = EvaluatorExecutionStatus.FAILED
+
+        await persist_evaluation_result(session, run_id, evaluator, status, result)
+        outcomes.append(
+            EvaluatorOutcome(
+                evaluator_name=evaluator.name,
+                evaluator_version=evaluator.version,
+                execution_status=status,
+                result=result,
+            )
+        )
+
+    classifier = FailureClassifier()
+    classification = classifier.classify(outcomes)
+    await persist_run_failure(session, run_id, classification, classifier)
+
+    return EvaluationTriggerResponse(
+        run_id=run_id,
+        overall_status=classification.overall_status.value,
+        evaluator_results=[
+            EvaluatorResultSummary(
+                evaluator_name=outcome.evaluator_name,
+                evaluator_version=outcome.evaluator_version,
+                execution_status=outcome.execution_status.value,
+                passed=(
+                    outcome.result.passed
+                    if outcome.execution_status is EvaluatorExecutionStatus.COMPLETED
+                    and outcome.result is not None
+                    else None
+                ),
+                score=(
+                    outcome.result.score
+                    if outcome.execution_status is EvaluatorExecutionStatus.COMPLETED
+                    and outcome.result is not None
+                    else None
+                ),
+                label=(
+                    outcome.result.label
+                    if outcome.execution_status is EvaluatorExecutionStatus.COMPLETED
+                    and outcome.result is not None
+                    else None
+                ),
+                severity=(
+                    outcome.result.severity
+                    if outcome.execution_status is EvaluatorExecutionStatus.COMPLETED
+                    and outcome.result is not None
+                    else None
+                ),
+                reason=outcome.result.reason if outcome.result is not None else None,
+                findings=(
+                    [
+                        finding.model_dump(mode="json")
+                        for finding in outcome.result.findings
+                    ]
+                    if outcome.result is not None
+                    else []
+                ),
+            )
+            for outcome in outcomes
+        ],
+        failure=RunFailureResponse(
+            primary_category=(
+                classification.primary_category.value
+                if classification.primary_category is not None
+                else None
+            ),
+            secondary_category=(
+                classification.secondary_category.value
+                if classification.secondary_category is not None
+                else None
+            ),
+            max_severity=classification.max_severity,
+        ),
+        evaluated_at=evaluated_at,
     )
 
 
@@ -262,6 +383,161 @@ def _run_list_filters(params: RunListParams) -> list[ColumnElement[bool]]:
     if params.started_before is not None:
         filters.append(AgentRun.started_at <= params.started_before)
     return filters
+
+
+async def _evaluation_run_view(
+    session: AsyncSession,
+    run_id: str,
+) -> EvaluationRunView | None:
+    run = await session.scalar(select(AgentRun).where(AgentRun.run_id == run_id))
+    if run is None:
+        return None
+
+    spans = list(
+        await session.scalars(
+            select(Span).where(Span.run_id == run_id).order_by(Span.sequence)
+        )
+    )
+    span_ids = {span.id: span.span_id for span in spans}
+    tool_calls = list(
+        await session.scalars(
+            select(ToolCall)
+            .where(ToolCall.run_id == run_id)
+            .order_by(ToolCall.sequence)
+        )
+    )
+    llm_calls = list(
+        await session.scalars(
+            select(LLMCall)
+            .where(LLMCall.run_id == run_id)
+            .order_by(LLMCall.started_at, LLMCall.llm_call_id)
+        )
+    )
+
+    return EvaluationRunView(
+        run_id=run.run_id,
+        schema_version=run.schema_version,
+        event_type=run.event_type,
+        agent_name=run.agent_name,
+        agent_version=run.agent_version,
+        prompt_version=run.prompt_version,
+        environment=run.environment,
+        raw_input=run.raw_input,
+        normalized_input=run.normalized_input,
+        scenario_id=run.scenario_id,
+        started_at=run.started_at,
+        completed_at=run.completed_at,
+        status=run.status,
+        execution_latency_ms=run.execution_latency_ms,
+        wall_clock_duration_ms=run.wall_clock_duration_ms,
+        resume_count=run.resume_count,
+        hitl_required=run.hitl_required,
+        hitl_state=run.hitl_state,
+        hitl_checkpoint_id=run.hitl_checkpoint_id,
+        hitl_decision=run.hitl_decision,
+        hitl_requested_at=run.hitl_requested_at,
+        hitl_decided_at=run.hitl_decided_at,
+        hitl_pending_action=run.hitl_pending_action,
+        usage_total_llm_calls=run.usage_total_llm_calls,
+        usage_total_tool_calls=run.usage_total_tool_calls,
+        usage_total_tokens=run.usage_total_tokens,
+        usage_total_retries=run.usage_total_retries,
+        usage_total_estimated_cost_usd=run.usage_total_estimated_cost_usd,
+        final_result_output=run.final_result_output,
+        final_result_source_references=run.final_result_source_references,
+        runtime_error_category=run.runtime_error_category,
+        runtime_error_code=run.runtime_error_code,
+        runtime_error_message=run.runtime_error_message,
+        runtime_error_failed_component=run.runtime_error_failed_component,
+        spans=[
+            SpanView(
+                span_id=span.span_id,
+                parent_span_id=(
+                    span_ids[span.parent_span_id]
+                    if span.parent_span_id is not None
+                    else None
+                ),
+                name=span.name,
+                sequence=span.sequence,
+                started_at=span.started_at,
+                completed_at=span.completed_at,
+                status=span.status,
+                input=span.input,
+                output=span.output,
+                metadata=span.metadata_,
+                error_category=span.error_category,
+                error_code=span.error_code,
+                error_message=span.error_message,
+                error_failed_component=span.error_failed_component,
+            )
+            for span in spans
+        ],
+        tool_calls=[
+            ToolCallView(
+                tool_call_id=tool_call.tool_call_id,
+                span_id=span_ids[tool_call.span_id],
+                tool_name=tool_call.tool_name,
+                sequence=tool_call.sequence,
+                arguments=tool_call.arguments,
+                result=tool_call.result,
+                started_at=tool_call.started_at,
+                completed_at=tool_call.completed_at,
+                latency_ms=tool_call.latency_ms,
+                retry_count=tool_call.retry_count,
+                status=tool_call.status,
+                error_category=tool_call.error_category,
+                error_code=tool_call.error_code,
+                error_message=tool_call.error_message,
+                error_failed_component=tool_call.error_failed_component,
+            )
+            for tool_call in tool_calls
+        ],
+        llm_calls=[
+            LLMCallView(
+                llm_call_id=llm_call.llm_call_id,
+                span_id=span_ids[llm_call.span_id],
+                sequence=sequence,
+                call_type=llm_call.call_type,
+                model=llm_call.model,
+                provider=llm_call.provider,
+                started_at=llm_call.started_at,
+                completed_at=llm_call.completed_at,
+                latency_ms=llm_call.latency_ms,
+                prompt_tokens=llm_call.prompt_tokens,
+                completion_tokens=llm_call.completion_tokens,
+                total_tokens=llm_call.total_tokens,
+                estimated_cost_usd=llm_call.estimated_cost_usd,
+                input_payload=llm_call.input_payload,
+                output_payload=llm_call.output_payload,
+                status=llm_call.status,
+                error_category=llm_call.error_category,
+                error_code=llm_call.error_code,
+                error_message=llm_call.error_message,
+                error_failed_component=llm_call.error_failed_component,
+            )
+            for sequence, llm_call in enumerate(llm_calls, start=1)
+        ],
+    )
+
+
+def _evaluator_exception_result(exc: Exception) -> EvaluationResult:
+    return EvaluationResult(
+        passed=False,
+        score=None,
+        label=None,
+        severity=None,
+        reason=f"{type(exc).__name__}: {exc}",
+        findings=[
+            EvaluationFinding(
+                code="evaluator_exception",
+                message="Evaluator raised an exception",
+                data={
+                    "exception_type": type(exc).__name__,
+                    "message": str(exc),
+                },
+            )
+        ],
+    )
 
 
 def _error_response(

@@ -15,6 +15,7 @@ from obs_platform.evaluation.persistence import persist_evaluation_result
 from obs_platform.evaluation.types import (
     EvaluationResult,
     EvaluationRunView,
+    EvaluatorExecutionStatus,
     EvaluatorType,
 )
 from obs_platform.ingestion.runs import ingest_run_event
@@ -41,12 +42,14 @@ async def test_persisting_same_evaluator_twice_inserts_two_rows(
         session,
         run_id,
         evaluator,
+        EvaluatorExecutionStatus.COMPLETED,
         _result(reason="first evaluation"),
     )
     second = await persist_evaluation_result(
         session,
         run_id,
         evaluator,
+        EvaluatorExecutionStatus.COMPLETED,
         _result(reason="second evaluation"),
     )
 
@@ -66,6 +69,7 @@ async def test_persisted_rows_use_completed_status_and_no_regression_run(
         session,
         run_id,
         _evaluator("structured_output"),
+        EvaluatorExecutionStatus.COMPLETED,
         _result(
             score=0.5,
             label="fail",
@@ -111,6 +115,7 @@ async def test_later_persistence_failure_does_not_roll_back_prior_commits(
             session,
             run_id,
             _evaluator(evaluator_name),
+            EvaluatorExecutionStatus.COMPLETED,
             _result(reason=f"{evaluator_name} passed"),
         )
 
@@ -119,6 +124,7 @@ async def test_later_persistence_failure_does_not_roll_back_prior_commits(
             session,
             "missing-run-id",
             _evaluator("policy"),
+            EvaluatorExecutionStatus.COMPLETED,
             _result(reason="policy passed"),
         )
     await session.rollback()
@@ -138,6 +144,7 @@ async def test_persist_evaluation_result_uses_plain_async_session(
         session,
         run_id,
         _evaluator("evidence"),
+        EvaluatorExecutionStatus.COMPLETED,
         _result(reason="evidence passed"),
     )
 

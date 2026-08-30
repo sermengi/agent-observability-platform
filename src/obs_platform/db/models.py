@@ -29,6 +29,10 @@ def _values(values: type[StrEnum]) -> str:
     return ", ".join(f"'{item.value}'" for item in values)
 
 
+_EVALUATOR_EXECUTION_STATUSES = "'pending', 'running', 'completed', 'failed', 'skipped'"
+_OVERALL_EVALUATION_STATUSES = "'pass', 'fail', 'incomplete'"
+
+
 class AgentRun(Base):
     __tablename__ = "agent_runs"
     __table_args__ = (
@@ -250,6 +254,10 @@ class LLMCall(Base):
 class EvaluationResult(Base):
     __tablename__ = "evaluation_results"
     __table_args__ = (
+        CheckConstraint(
+            f"status IN ({_EVALUATOR_EXECUTION_STATUSES})",
+            name="ck_evaluation_results_status",
+        ),
         UniqueConstraint(
             "run_id",
             "evaluator_name",
@@ -281,14 +289,22 @@ class EvaluationResult(Base):
 
 class RunFailure(Base):
     __tablename__ = "run_failures"
+    __table_args__ = (
+        CheckConstraint(
+            f"overall_status IN ({_OVERALL_EVALUATION_STATUSES})",
+            name="ck_run_failures_overall_status",
+        ),
+    )
 
     run_id: Mapped[str] = mapped_column(
         ForeignKey("agent_runs.run_id"),
         primary_key=True,
     )
-    primary_category: Mapped[str] = mapped_column(Text, nullable=False)
+    overall_status: Mapped[str] = mapped_column(Text, nullable=False)
+    primary_category: Mapped[str | None] = mapped_column(Text)
     secondary_category: Mapped[str | None] = mapped_column(Text)
-    max_severity: Mapped[str] = mapped_column(Text, nullable=False)
+    max_severity: Mapped[str | None] = mapped_column(Text)
+    classifier_version: Mapped[str] = mapped_column(Text, nullable=False)
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         nullable=False,

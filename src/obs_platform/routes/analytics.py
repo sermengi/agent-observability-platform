@@ -28,6 +28,8 @@ from obs_platform.telemetry.v1.enums import (
 
 router = APIRouter()
 
+__all__ = ["get_session", "router"]
+
 
 class AnalyticsTimeRangeParams(BaseModel):
     started_after: datetime | None = None

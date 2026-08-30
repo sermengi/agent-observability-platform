@@ -22,6 +22,30 @@ class EvaluatorType(StrEnum):
     LLM_BASED = "llm_based"
 
 
+class EvaluatorExecutionStatus(StrEnum):
+    PENDING = "pending"
+    RUNNING = "running"
+    COMPLETED = "completed"
+    FAILED = "failed"
+    SKIPPED = "skipped"
+
+
+class OverallEvaluationStatus(StrEnum):
+    PASS = "pass"
+    FAIL = "fail"
+    INCOMPLETE = "incomplete"
+
+
+class FailureType(StrEnum):
+    TOOL_FAILURE = "tool_failure"
+    RETRIEVAL_FAILURE = "retrieval_failure"
+    TRAJECTORY_ERROR = "trajectory_error"
+    OUTPUT_VALIDATION_ERROR = "output_validation_error"
+    UNSUPPORTED_CLAIM = "unsupported_claim"
+    POLICY_VIOLATION = "policy_violation"
+    UNKNOWN = "unknown"
+
+
 class EvaluationFinding(EvaluationModel):
     code: str
     message: str

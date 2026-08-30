@@ -189,6 +189,32 @@ class RunDetailResponse(APIResponseModel):
     )
 
 
+class EvaluatorResultSummary(APIResponseModel):
+    evaluator_name: str
+    evaluator_version: str
+    execution_status: str
+    passed: bool | None
+    score: float | None
+    label: str | None
+    severity: str | None
+    reason: str | None
+    findings: list[dict[str, Any]]
+
+
+class RunFailureResponse(APIResponseModel):
+    primary_category: str | None
+    secondary_category: str | None
+    max_severity: str | None
+
+
+class EvaluationTriggerResponse(APIResponseModel):
+    run_id: str
+    overall_status: str
+    evaluator_results: list[EvaluatorResultSummary]
+    failure: RunFailureResponse | None
+    evaluated_at: datetime
+
+
 class RunCounts(APIResponseModel):
     total: int
     by_status: dict[RunStatus, int]
