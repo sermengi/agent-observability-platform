@@ -38,6 +38,9 @@ class RunSummary(APIResponseModel):
     )
     usage_total_tokens: int
     usage_total_estimated_cost_usd: float
+    overall_status: str | None
+    primary_failure_type: str | None
+    max_severity: str | None
 
 
 class RunListResponse(APIResponseModel):
@@ -154,6 +157,27 @@ class FinalResultResponse(APIResponseModel):
     source_references: list[str]
 
 
+class EvaluatorResultSummary(APIResponseModel):
+    evaluator_name: str
+    evaluator_version: str
+    execution_status: str
+    passed: bool | None
+    score: float | None
+    label: str | None
+    severity: str | None
+    reason: str | None
+    findings: list[dict[str, Any]]
+
+
+class RunFailureSummary(APIResponseModel):
+    overall_status: str
+    primary_failure_type: str | None
+    secondary_failure_type: str | None
+    max_severity: str | None
+    classifier_version: str
+    updated_at: datetime
+
+
 class RunDetailResponse(APIResponseModel):
     run_id: str
     scenario_id: str | None
@@ -187,18 +211,8 @@ class RunDetailResponse(APIResponseModel):
     runtime_error: ErrorResponse | None = Field(
         description="Populated when status is tool_error or runtime_error."
     )
-
-
-class EvaluatorResultSummary(APIResponseModel):
-    evaluator_name: str
-    evaluator_version: str
-    execution_status: str
-    passed: bool | None
-    score: float | None
-    label: str | None
-    severity: str | None
-    reason: str | None
-    findings: list[dict[str, Any]]
+    failure: RunFailureSummary | None
+    evaluation_summary: list[EvaluatorResultSummary] | None
 
 
 class RunFailureResponse(APIResponseModel):

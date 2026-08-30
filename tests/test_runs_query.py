@@ -10,7 +10,8 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from obs_platform.api.v1.schemas import RunDetailResponse
 from obs_platform.config import DatabaseOnlySettings
 from obs_platform.database import create_engine
-from obs_platform.db.models import AgentRun, LLMCall, Span, ToolCall
+from obs_platform.db.models import AgentRun, EvaluationResult, LLMCall, RunFailure, Span
+from obs_platform.db.models import ToolCall as ToolCallRecord
 from obs_platform.ingestion.runs import ingest_run_event
 from obs_platform.main import create_app
 from obs_platform.routes import runs
@@ -48,7 +49,7 @@ async def test_get_runs_defaults_to_twenty_most_recent_with_total_count(
 ) -> None:
     run_ids = [f"phase3-list-{index:02d}" for index in range(21)]
     await _delete_runs(session, run_ids)
-    base_started_at = datetime(2035, 1, 1, tzinfo=UTC)
+    base_started_at = datetime(2100, 1, 1, tzinfo=UTC)
 
     for index, run_id in enumerate(run_ids):
         event = _fixture_with_run_id("healthy_success", run_id)
@@ -228,15 +229,113 @@ async def test_get_runs_response_items_are_lightweight_summaries(
         "wall_clock_duration_ms",
         "usage_total_tokens",
         "usage_total_estimated_cost_usd",
+        "overall_status",
+        "primary_failure_type",
+        "max_severity",
     }
+    assert item["overall_status"] is None
+    assert item["primary_failure_type"] is None
+    assert item["max_severity"] is None
     assert "spans" not in item
     assert "tool_calls" not in item
     assert "llm_calls" not in item
     assert "raw_input" not in item
     assert "normalized_input" not in item
     assert "final_result" not in item
+    assert "failure" not in item
+    assert "evaluation_summary" not in item
 
     await _delete_runs(session, [event.run_id])
+
+
+async def test_get_runs_filters_by_evaluation_failure_snapshot(
+    session: AsyncSession,
+    query_client: AsyncClient,
+) -> None:
+    run_ids = [
+        "phase5-list-eval-policy",
+        "phase5-list-eval-tool",
+        "phase5-list-eval-pass",
+    ]
+    await _delete_runs(session, run_ids)
+    for run_id in run_ids:
+        event = _custom_event(
+            "healthy_success",
+            run_id=run_id,
+            started_at=datetime(2039, 1, 1, tzinfo=UTC),
+            scenario_id="phase5-list-eval",
+            agent_version="phase5-list-eval",
+            model="phase5-list-eval",
+        )
+        await ingest_run_event(session, event)
+
+    session.add_all(
+        [
+            RunFailure(
+                run_id="phase5-list-eval-policy",
+                overall_status="fail",
+                primary_category="policy_violation",
+                secondary_category=None,
+                max_severity="critical",
+                classifier_version="1.0.0",
+                updated_at=datetime(2039, 1, 1, 1, tzinfo=UTC),
+            ),
+            RunFailure(
+                run_id="phase5-list-eval-tool",
+                overall_status="fail",
+                primary_category="tool_failure",
+                secondary_category=None,
+                max_severity="error",
+                classifier_version="1.0.0",
+                updated_at=datetime(2039, 1, 1, 1, tzinfo=UTC),
+            ),
+            RunFailure(
+                run_id="phase5-list-eval-pass",
+                overall_status="pass",
+                primary_category=None,
+                secondary_category=None,
+                max_severity=None,
+                classifier_version="1.0.0",
+                updated_at=datetime(2039, 1, 1, 1, tzinfo=UTC),
+            ),
+        ]
+    )
+    await session.commit()
+
+    fail_response = await query_client.get(
+        "/v1/runs",
+        params={"scenario_id": "phase5-list-eval", "overall_status": "fail"},
+    )
+    policy_response = await query_client.get(
+        "/v1/runs",
+        params={
+            "scenario_id": "phase5-list-eval",
+            "primary_failure_type": "policy_violation",
+        },
+    )
+    combined_response = await query_client.get(
+        "/v1/runs",
+        params={
+            "scenario_id": "phase5-list-eval",
+            "overall_status": "fail",
+            "primary_failure_type": "tool_failure",
+        },
+    )
+
+    assert fail_response.status_code == 200
+    assert {
+        item["run_id"] for item in fail_response.json()["items"]
+    } == {"phase5-list-eval-policy", "phase5-list-eval-tool"}
+    assert policy_response.status_code == 200
+    assert [item["run_id"] for item in policy_response.json()["items"]] == [
+        "phase5-list-eval-policy"
+    ]
+    assert combined_response.status_code == 200
+    assert [item["run_id"] for item in combined_response.json()["items"]] == [
+        "phase5-list-eval-tool"
+    ]
+
+    await _delete_runs(session, run_ids)
 
 
 async def test_get_run_detail_unknown_run_id_returns_404(
@@ -273,6 +372,8 @@ async def test_get_run_detail_returns_flat_sequence_ordered_trajectory(
     )
     assert all(isinstance(llm_call["span_id"], str) for llm_call in body["llm_calls"])
     assert not _contains_key(body, "id")
+    assert body["failure"] is None
+    assert body["evaluation_summary"] is None
 
     await _delete_runs(session, [event.run_id])
 
@@ -386,6 +487,86 @@ async def test_get_run_detail_hitl_reingestion_preserves_ids_and_appends_tool_ca
     await _delete_runs(session, [pending.run_id])
 
 
+async def test_get_run_detail_includes_failure_and_latest_evaluation_summary(
+    session: AsyncSession,
+    query_client: AsyncClient,
+) -> None:
+    event = _fixture_with_run_id("healthy_success", "phase5-detail-evaluation")
+    await _delete_runs(session, [event.run_id])
+    await ingest_run_event(session, event)
+    session.add(
+        RunFailure(
+            run_id=event.run_id,
+            overall_status="fail",
+            primary_category="tool_failure",
+            secondary_category="retrieval_failure",
+            max_severity="error",
+            classifier_version="1.0.0",
+            updated_at=datetime(2040, 1, 1, tzinfo=UTC),
+        )
+    )
+    session.add_all(
+        [
+            _evaluation_result(
+                event.run_id,
+                evaluator_name="tool_execution",
+                created_at=datetime(2040, 1, 1, 0, 0, tzinfo=UTC),
+                label="fail",
+                passed=False,
+                reason="old tool failure",
+            ),
+            _evaluation_result(
+                event.run_id,
+                evaluator_name="tool_execution",
+                created_at=datetime(2040, 1, 1, 0, 1, tzinfo=UTC),
+                label="pass",
+                passed=True,
+                reason="latest tool pass",
+            ),
+            _evaluation_result(
+                event.run_id,
+                evaluator_name="evidence",
+                created_at=datetime(2040, 1, 1, 0, 0, tzinfo=UTC),
+                label="fail",
+                passed=False,
+                reason="old evidence failure",
+            ),
+            _evaluation_result(
+                event.run_id,
+                evaluator_name="evidence",
+                created_at=datetime(2040, 1, 1, 0, 1, tzinfo=UTC),
+                label="fail",
+                passed=False,
+                reason="latest evidence failure",
+            ),
+        ]
+    )
+    await session.commit()
+
+    response = await query_client.get(f"/v1/runs/{event.run_id}")
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["failure"] == {
+        "overall_status": "fail",
+        "primary_failure_type": "tool_failure",
+        "secondary_failure_type": "retrieval_failure",
+        "max_severity": "error",
+        "classifier_version": "1.0.0",
+        "updated_at": "2040-01-01T00:00:00Z",
+    }
+    assert len(body["evaluation_summary"]) == 2
+    by_name = {
+        item["evaluator_name"]: item for item in body["evaluation_summary"]
+    }
+    assert by_name["tool_execution"]["label"] == "pass"
+    assert by_name["tool_execution"]["reason"] == "latest tool pass"
+    assert by_name["evidence"]["label"] == "fail"
+    assert by_name["evidence"]["reason"] == "latest evidence failure"
+
+    await _delete_runs(session, [event.run_id])
+
+
 async def test_get_runs_and_detail_reconstruct_phase_1_fixture_corpus(
     session: AsyncSession,
     query_client: AsyncClient,
@@ -447,7 +628,14 @@ async def _count_runs(session: AsyncSession) -> int:
 
 
 async def _delete_runs(session: AsyncSession, run_ids: list[str]) -> None:
-    for model in (LLMCall, ToolCall, Span, AgentRun):
+    for model in (
+        RunFailure,
+        EvaluationResult,
+        LLMCall,
+        ToolCallRecord,
+        Span,
+        AgentRun,
+    ):
         await session.execute(delete(model).where(model.run_id.in_(run_ids)))
     await session.commit()
 
@@ -515,3 +703,28 @@ def _contains_key(value: object, key: str) -> bool:
     if isinstance(value, list):
         return any(_contains_key(item, key) for item in value)
     return False
+
+
+def _evaluation_result(
+    run_id: str,
+    *,
+    evaluator_name: str,
+    created_at: datetime,
+    label: str,
+    passed: bool,
+    reason: str,
+) -> EvaluationResult:
+    return EvaluationResult(
+        run_id=run_id,
+        evaluator_name=evaluator_name,
+        evaluator_version="1.0.0",
+        regression_run_id=None,
+        status="completed",
+        passed=passed,
+        score=1.0 if passed else 0.0,
+        label=label,
+        severity=None,
+        reason=reason,
+        findings=[],
+        created_at=created_at,
+    )

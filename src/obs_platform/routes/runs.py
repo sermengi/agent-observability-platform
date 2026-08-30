@@ -17,12 +17,15 @@ from obs_platform.api.v1.schemas import (
     LLMCallResponse,
     RunDetailResponse,
     RunFailureResponse,
+    RunFailureSummary,
     RunListResponse,
+    RunSummary,
     SpanResponse,
     ToolCallResponse,
     UsageResponse,
 )
-from obs_platform.db.models import AgentRun, LLMCall, Span, ToolCall
+from obs_platform.db.models import AgentRun, LLMCall, RunFailure, Span, ToolCall
+from obs_platform.db.models import EvaluationResult as EvaluationResultRecord
 from obs_platform.evaluation.classifier import (
     EvaluatorOutcome,
     FailureClassifier,
@@ -63,6 +66,8 @@ class RunListParams(BaseModel):
     scenario_id: str | None = None
     agent_version: str | None = None
     model: str | None = None
+    overall_status: str | None = None
+    primary_failure_type: str | None = None
     started_after: datetime | None = None
     started_before: datetime | None = None
 
@@ -78,18 +83,27 @@ async def list_runs(
 ) -> RunListResponse:
     filters = _run_list_filters(params)
     total = await session.scalar(
-        select(func.count()).select_from(AgentRun).where(*filters)
-    )
-    result = await session.scalars(
-        select(AgentRun)
+        select(func.count())
+        .select_from(AgentRun)
+        .outerjoin(RunFailure, RunFailure.run_id == AgentRun.run_id)
         .where(*filters)
-        .order_by(AgentRun.started_at.desc())
-        .limit(params.limit)
-        .offset(params.offset)
     )
+    rows = (
+        await session.execute(
+            select(AgentRun, RunFailure)
+            .outerjoin(RunFailure, RunFailure.run_id == AgentRun.run_id)
+            .where(*filters)
+            .order_by(AgentRun.started_at.desc())
+            .limit(params.limit)
+            .offset(params.offset)
+        )
+    ).all()
 
     return RunListResponse(
-        items=list(result),
+        items=[
+            _run_summary_response(run, run_failure)
+            for run, run_failure in rows
+        ],
         total=cast(int, total),
         limit=params.limit,
         offset=params.offset,
@@ -240,6 +254,8 @@ async def get_run(
             .order_by(LLMCall.started_at, LLMCall.llm_call_id)
         )
     )
+    run_failure = await session.get(RunFailure, run_id)
+    evaluation_summary = await _latest_evaluation_summary(session, run_id)
 
     return RunDetailResponse(
         run_id=run.run_id,
@@ -361,6 +377,49 @@ async def get_run(
             run.runtime_error_message,
             run.runtime_error_failed_component,
         ),
+        failure=(
+            RunFailureSummary(
+                overall_status=run_failure.overall_status,
+                primary_failure_type=run_failure.primary_category,
+                secondary_failure_type=run_failure.secondary_category,
+                max_severity=run_failure.max_severity,
+                classifier_version=run_failure.classifier_version,
+                updated_at=run_failure.updated_at,
+            )
+            if run_failure is not None
+            else None
+        ),
+        evaluation_summary=evaluation_summary or None,
+    )
+
+
+def _run_summary_response(
+    run: AgentRun,
+    run_failure: RunFailure | None,
+) -> RunSummary:
+    return RunSummary(
+        run_id=run.run_id,
+        scenario_id=run.scenario_id,
+        agent_name=run.agent_name,
+        agent_version=run.agent_version,
+        prompt_version=run.prompt_version,
+        environment=run.environment,
+        status=run.status,
+        event_type=run.event_type,
+        hitl_state=run.hitl_state,
+        started_at=run.started_at,
+        completed_at=run.completed_at,
+        execution_latency_ms=run.execution_latency_ms,
+        wall_clock_duration_ms=run.wall_clock_duration_ms,
+        usage_total_tokens=run.usage_total_tokens,
+        usage_total_estimated_cost_usd=run.usage_total_estimated_cost_usd,
+        overall_status=(
+            run_failure.overall_status if run_failure is not None else None
+        ),
+        primary_failure_type=(
+            run_failure.primary_category if run_failure is not None else None
+        ),
+        max_severity=run_failure.max_severity if run_failure is not None else None,
     )
 
 
@@ -378,11 +437,59 @@ def _run_list_filters(params: RunListParams) -> list[ColumnElement[bool]]:
             .where(LLMCall.run_id == AgentRun.run_id)
             .where(LLMCall.model == params.model)
         )
+    if params.overall_status is not None:
+        filters.append(RunFailure.overall_status == params.overall_status)
+    if params.primary_failure_type is not None:
+        filters.append(RunFailure.primary_category == params.primary_failure_type)
     if params.started_after is not None:
         filters.append(AgentRun.started_at >= params.started_after)
     if params.started_before is not None:
         filters.append(AgentRun.started_at <= params.started_before)
     return filters
+
+
+async def _latest_evaluation_summary(
+    session: AsyncSession,
+    run_id: str,
+) -> list[EvaluatorResultSummary]:
+    latest_rank = (
+        select(
+            EvaluationResultRecord.id,
+            func.row_number()
+            .over(
+                partition_by=EvaluationResultRecord.evaluator_name,
+                order_by=(
+                    EvaluationResultRecord.created_at.desc(),
+                    EvaluationResultRecord.id.desc(),
+                ),
+            )
+            .label("latest_rank"),
+        )
+        .where(EvaluationResultRecord.run_id == run_id)
+        .subquery()
+    )
+    rows = list(
+        await session.scalars(
+            select(EvaluationResultRecord)
+            .join(latest_rank, latest_rank.c.id == EvaluationResultRecord.id)
+            .where(latest_rank.c.latest_rank == 1)
+            .order_by(EvaluationResultRecord.evaluator_name)
+        )
+    )
+    return [
+        EvaluatorResultSummary(
+            evaluator_name=row.evaluator_name,
+            evaluator_version=row.evaluator_version,
+            execution_status=row.status,
+            passed=row.passed,
+            score=row.score,
+            label=row.label,
+            severity=row.severity,
+            reason=row.reason,
+            findings=row.findings or [],
+        )
+        for row in rows
+    ]
 
 
 async def _evaluation_run_view(
