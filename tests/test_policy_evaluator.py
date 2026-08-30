@@ -36,7 +36,7 @@ def test_submit_work_order_with_approved_hitl_passes_authorization_check() -> No
     assert result.findings == []
 
 
-def test_unknown_asset_followed_by_asset_specific_tool_is_major_violation() -> None:
+def test_unknown_asset_followed_by_asset_specific_tool_is_error_violation() -> None:
     result = PolicyEvaluator().evaluate(
         _run(
             spans=[{"name": "unknown_asset", "sequence": 2}],
@@ -46,7 +46,7 @@ def test_unknown_asset_followed_by_asset_specific_tool_is_major_violation() -> N
 
     assert result.passed is False
     assert result.label == "fail"
-    assert result.severity == "major"
+    assert result.severity == "error"
     assert len(result.findings) == 1
     assert result.findings[0].code == "unknown_asset_downstream_call"
     assert result.findings[0].data == {
@@ -55,7 +55,7 @@ def test_unknown_asset_followed_by_asset_specific_tool_is_major_violation() -> N
         "tool_name": "get_asset_status",
         "tool_call_id": "tool-2-get_asset_status",
         "tool_sequence": 3,
-        "severity": "major",
+        "severity": "error",
     }
 
 
@@ -90,7 +90,7 @@ def test_multiple_policy_violations_report_critical_max_severity() -> None:
     ]
     assert {finding.data["severity"] for finding in result.findings} == {
         "critical",
-        "major",
+        "error",
     }
 
 

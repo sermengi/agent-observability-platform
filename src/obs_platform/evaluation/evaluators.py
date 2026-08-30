@@ -337,7 +337,7 @@ def _unknown_asset_downstream_call_findings(
                 "tool_name": tool_call.tool_name,
                 "tool_call_id": tool_call.tool_call_id,
                 "tool_sequence": tool_call.sequence,
-                "severity": "major",
+                "severity": "error",
             },
         )
         for tool_call in run.tool_calls
@@ -354,8 +354,8 @@ def _max_policy_severity(findings: list[EvaluationFinding]) -> str | None:
     }
     if "critical" in severities:
         return "critical"
-    if "major" in severities:
-        return "major"
+    if "error" in severities:
+        return "error"
     return None
 
 
