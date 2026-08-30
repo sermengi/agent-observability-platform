@@ -3,6 +3,7 @@ from obs_platform.evaluation.classifier import (
     FAILURE_TYPE_SEVERITY,
     EvaluatorOutcome,
     FailureClassifier,
+    _max_severity,
 )
 from obs_platform.evaluation.types import (
     EvaluationFinding,
@@ -23,6 +24,17 @@ def test_failure_type_severity_covers_all_failure_types() -> None:
         FailureType.RETRIEVAL_FAILURE: "warning",
         FailureType.UNKNOWN: None,
     }
+
+
+def test_max_severity_is_true_max_not_just_the_first_types_severity() -> None:
+    # RETRIEVAL_FAILURE (warning) is earlier in FAILURE_TYPE_PRIORITY than
+    # POLICY_VIOLATION (critical) would ever appear here, so passing it
+    # first only proves the result is a true max() — a regression to
+    # "use the first/primary type's severity" would wrongly return "warning".
+    assert (
+        _max_severity([FailureType.RETRIEVAL_FAILURE, FailureType.POLICY_VIOLATION])
+        == "critical"
+    )
 
 
 def test_classifier_max_severity_comes_from_failure_type_mapping() -> None:

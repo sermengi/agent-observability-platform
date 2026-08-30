@@ -28,6 +28,10 @@ def upgrade() -> None:
     )
     op.alter_column("run_failures", "primary_category", nullable=True)
     op.alter_column("run_failures", "max_severity", nullable=True)
+    op.add_column(
+        "evaluation_results",
+        sa.Column("passed", sa.Boolean(), nullable=True),
+    )
     op.create_check_constraint(
         "ck_evaluation_results_status",
         "evaluation_results",
@@ -51,6 +55,7 @@ def downgrade() -> None:
         "evaluation_results",
         type_="check",
     )
+    op.drop_column("evaluation_results", "passed")
     op.alter_column("run_failures", "max_severity", nullable=False)
     op.alter_column("run_failures", "primary_category", nullable=False)
     op.drop_column("run_failures", "classifier_version")
