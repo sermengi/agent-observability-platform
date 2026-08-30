@@ -144,7 +144,7 @@ async def evaluate_run(
 
     classifier = FailureClassifier()
     classification = classifier.classify(outcomes)
-    await persist_run_failure(session, run_id, classification, classifier)
+    await persist_run_failure(session, run_id, classification)
 
     return EvaluationTriggerResponse(
         run_id=run_id,

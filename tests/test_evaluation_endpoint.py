@@ -18,9 +18,11 @@ from obs_platform.db.models import (
 )
 from obs_platform.db.models import ToolCall as ToolCallRecord
 from obs_platform.evaluation.base import Evaluator
+from obs_platform.evaluation.classifier import FailureClassifier, RunFailureResult
 from obs_platform.evaluation.types import EvaluationResult as EvaluationOutcome
 from obs_platform.evaluation.types import (
     EvaluationRunView,
+    EvaluatorExecutionStatus,
     EvaluatorType,
 )
 from obs_platform.ingestion.runs import ingest_run_event
@@ -46,7 +48,7 @@ async def evaluation_client(session: AsyncSession) -> AsyncIterator[AsyncClient]
     app = create_app()
     app.dependency_overrides[runs.get_session] = get_session
     async with AsyncClient(
-        transport=ASGITransport(app=app),
+        transport=ASGITransport(app=app, raise_app_exceptions=False),
         base_url="http://testserver",
     ) as client:
         yield client
@@ -279,6 +281,64 @@ async def test_evaluate_fail_precedes_incomplete_when_failure_and_crash_occur(
     assert run_failure is not None
     assert run_failure.overall_status == "fail"
     assert run_failure.primary_category == "output_validation_error"
+
+    await _delete_run(session, run_id)
+
+
+async def test_evaluate_classifies_current_in_memory_evaluator_outcomes(
+    session: AsyncSession,
+    evaluation_client: AsyncClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    run_id = "phase5-evaluate-classifies-current-outcomes"
+    await _create_run(session, "healthy_success", run_id)
+    evaluators = [_FirstEvaluator(), _StructuredFailureEvaluator()]
+    observed_outcomes = []
+    monkeypatch.setattr(runs, "DETERMINISTIC_EVALUATORS", evaluators)
+
+    original_classify = FailureClassifier.classify
+
+    def spy_classify(self: FailureClassifier, outcomes: list[Any]) -> RunFailureResult:
+        observed_outcomes.extend(outcomes)
+        return original_classify(self, outcomes)
+
+    monkeypatch.setattr(FailureClassifier, "classify", spy_classify)
+
+    response = await evaluation_client.post(f"/v1/runs/{run_id}/evaluate")
+
+    assert response.status_code == 200
+    assert [outcome.evaluator_name for outcome in observed_outcomes] == [
+        "first",
+        "structured_failure",
+    ]
+    assert all(
+        outcome.execution_status is EvaluatorExecutionStatus.COMPLETED
+        for outcome in observed_outcomes
+    )
+    assert [outcome.result.label for outcome in observed_outcomes] == ["pass", "fail"]
+
+    await _delete_run(session, run_id)
+
+
+async def test_run_failure_persistence_failure_leaves_evaluation_results_committed(
+    session: AsyncSession,
+    evaluation_client: AsyncClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    run_id = "phase5-run-failure-persist-failure"
+    await _create_run(session, "healthy_success", run_id)
+    monkeypatch.setattr(runs, "DETERMINISTIC_EVALUATORS", [_FirstEvaluator()])
+
+    async def fail_persist_run_failure(*args: object, **kwargs: object) -> None:
+        raise RuntimeError("forced run failure persistence failure")
+
+    monkeypatch.setattr(runs, "persist_run_failure", fail_persist_run_failure)
+
+    response = await evaluation_client.post(f"/v1/runs/{run_id}/evaluate")
+
+    assert response.status_code == 500
+    assert await _evaluation_result_count(session, run_id) == 1
+    assert await session.get(RunFailure, run_id) is None
 
     await _delete_run(session, run_id)
 

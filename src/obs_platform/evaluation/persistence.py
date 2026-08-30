@@ -49,7 +49,6 @@ async def persist_run_failure(
     session: AsyncSession,
     run_id: str,
     classification: RunFailureResult,
-    classifier: FailureClassifier,
 ) -> RunFailureRecord:
     values = {
         "run_id": run_id,
@@ -65,7 +64,7 @@ async def persist_run_failure(
             else None
         ),
         "max_severity": classification.max_severity,
-        "classifier_version": classifier.version,
+        "classifier_version": FailureClassifier.version,
         "updated_at": datetime.now(UTC),
     }
     statement = insert(RunFailureRecord).values(**values)
@@ -82,7 +81,7 @@ async def persist_run_failure(
     )
     await session.execute(statement)
     await session.commit()
-    record = await session.get(RunFailureRecord, run_id)
+    record = await session.get(RunFailureRecord, run_id, populate_existing=True)
     if record is None:
         raise RuntimeError("run failure upsert did not return a record")
     return record

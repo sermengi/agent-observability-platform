@@ -11,13 +11,20 @@ from obs_platform.config import DatabaseOnlySettings
 from obs_platform.database import create_engine
 from obs_platform.db.models import AgentRun, LLMCall, Span, ToolCall
 from obs_platform.db.models import EvaluationResult as EvaluationResultRecord
+from obs_platform.db.models import RunFailure as RunFailureRecord
 from obs_platform.evaluation.base import Evaluator
-from obs_platform.evaluation.persistence import persist_evaluation_result
+from obs_platform.evaluation.classifier import FailureClassifier, RunFailureResult
+from obs_platform.evaluation.persistence import (
+    persist_evaluation_result,
+    persist_run_failure,
+)
 from obs_platform.evaluation.types import (
     EvaluationResult,
     EvaluationRunView,
     EvaluatorExecutionStatus,
     EvaluatorType,
+    FailureType,
+    OverallEvaluationStatus,
 )
 from obs_platform.ingestion.runs import ingest_run_event
 from obs_platform.telemetry.v1 import load_fixture
@@ -193,6 +200,75 @@ def test_persist_evaluation_result_requires_explicit_status_argument() -> None:
     assert signature.parameters["status"].default is inspect.Signature.empty
 
 
+def test_persist_run_failure_has_locked_task_6_signature() -> None:
+    signature = inspect.signature(persist_run_failure)
+
+    assert list(signature.parameters) == ["session", "run_id", "classification"]
+
+
+async def test_persist_run_failure_upserts_current_snapshot(
+    session: AsyncSession,
+) -> None:
+    run_id = "phase5-run-failure-upsert"
+    await _create_run(session, run_id)
+
+    first = await persist_run_failure(
+        session,
+        run_id,
+        RunFailureResult(
+            overall_status=OverallEvaluationStatus.FAIL,
+            primary_category=FailureType.TOOL_FAILURE,
+            secondary_category=None,
+            max_severity="error",
+        ),
+    )
+    second = await persist_run_failure(
+        session,
+        run_id,
+        RunFailureResult(
+            overall_status=OverallEvaluationStatus.PASS,
+            primary_category=None,
+            secondary_category=None,
+            max_severity=None,
+        ),
+    )
+
+    rows = list(
+        await session.scalars(
+            select(RunFailureRecord).where(RunFailureRecord.run_id == run_id)
+        )
+    )
+    assert len(rows) == 1
+    assert first.run_id == second.run_id == run_id
+    assert rows[0].overall_status == "pass"
+    assert rows[0].primary_category is None
+    assert rows[0].max_severity is None
+
+    await _delete_run(session, run_id)
+
+
+async def test_persist_run_failure_populates_classifier_version(
+    session: AsyncSession,
+) -> None:
+    run_id = "phase5-run-failure-classifier-version"
+    await _create_run(session, run_id)
+
+    record = await persist_run_failure(
+        session,
+        run_id,
+        RunFailureResult(
+            overall_status=OverallEvaluationStatus.FAIL,
+            primary_category=FailureType.POLICY_VIOLATION,
+            secondary_category=FailureType.TOOL_FAILURE,
+            max_severity="critical",
+        ),
+    )
+
+    assert record.classifier_version == FailureClassifier.version
+
+    await _delete_run(session, run_id)
+
+
 async def test_later_persistence_failure_does_not_roll_back_prior_commits(
     session: AsyncSession,
 ) -> None:
@@ -293,7 +369,7 @@ async def _create_run(session: AsyncSession, run_id: str) -> None:
 async def _delete_run(session: AsyncSession, run_id: str) -> None:
     for model in cast(
         tuple[Any, ...],
-        (EvaluationResultRecord, LLMCall, ToolCall, Span, AgentRun),
+        (RunFailureRecord, EvaluationResultRecord, LLMCall, ToolCall, Span, AgentRun),
     ):
         await session.execute(delete(model).where(model.run_id == run_id))
     await session.commit()
