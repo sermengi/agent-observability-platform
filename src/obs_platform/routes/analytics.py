@@ -10,6 +10,7 @@ from sqlalchemy.sql import ColumnElement
 from obs_platform.api.deps import get_session
 from obs_platform.api.v1.schemas import (
     CallTypeUsageBreakdown,
+    EvaluationCounts,
     FailureAnalyticsResponse,
     FailureRunCounts,
     FailureSeverityBreakdown,
@@ -88,11 +89,18 @@ async def get_overview(
     status_counts = {status: 0 for status in RunStatus}
     for status, count in status_rows:
         status_counts[RunStatus(status)] = count
+    evaluation_counts = await _evaluation_status_counts(session, filters)
+    behavioral_denominator = evaluation_counts["pass"] + evaluation_counts["fail"]
 
     return OverviewAnalyticsResponse(
         runtime_success_rate=(
             aggregate_row.success_count / aggregate_row.terminal_count
             if aggregate_row.terminal_count > 0
+            else None
+        ),
+        behavioral_pass_rate=(
+            evaluation_counts["pass"] / behavioral_denominator
+            if behavioral_denominator > 0
             else None
         ),
         avg_latency_ms=(
@@ -108,6 +116,10 @@ async def get_overview(
         usage_total_tokens=aggregate_row.tokens,
         usage_total_estimated_cost_usd=aggregate_row.cost,
         run_counts=RunCounts(total=aggregate_row.total, by_status=status_counts),
+        evaluation_counts=EvaluationCounts(
+            total=sum(evaluation_counts.values()),
+            by_overall_status=evaluation_counts,
+        ),
     )
 
 
@@ -283,16 +295,7 @@ async def get_failures(
     )
     evaluated_count = int(evaluated_total or 0)
 
-    overall_rows = await session.execute(
-        select(RunFailure.overall_status, func.count())
-        .select_from(RunFailure)
-        .join(AgentRun, AgentRun.run_id == RunFailure.run_id)
-        .where(*filters)
-        .group_by(RunFailure.overall_status)
-    )
-    overall_counts = {"pass": 0, "fail": 0, "incomplete": 0}
-    for overall_status, count in overall_rows:
-        overall_counts[overall_status] = count
+    overall_counts = await _evaluation_status_counts(session, filters)
     failing_count = overall_counts["fail"] + overall_counts["incomplete"]
 
     failure_type_rows = await session.execute(
@@ -367,6 +370,23 @@ def _ratio(numerator: int, denominator: int) -> float:
     if denominator == 0:
         return 0.0
     return numerator / denominator
+
+
+async def _evaluation_status_counts(
+    session: AsyncSession,
+    filters: list[ColumnElement[bool]],
+) -> dict[str, int]:
+    rows = await session.execute(
+        select(RunFailure.overall_status, func.count())
+        .select_from(RunFailure)
+        .join(AgentRun, AgentRun.run_id == RunFailure.run_id)
+        .where(*filters)
+        .group_by(RunFailure.overall_status)
+    )
+    counts = {"pass": 0, "fail": 0, "incomplete": 0}
+    for overall_status, count in rows:
+        counts[overall_status] = count
+    return counts
 
 
 def _usage_totals(row: Any) -> UsageTotals:

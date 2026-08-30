@@ -175,6 +175,169 @@ async def test_overview_analytics_pending_excluded_from_success_rate_denominator
     await _delete_runs(session, run_ids)
 
 
+async def test_overview_behavioral_pass_rate_excludes_incomplete_denominator(
+    session: AsyncSession,
+    analytics_client: AsyncClient,
+) -> None:
+    run_ids = [
+        "phase5-overview-behavior-pass",
+        "phase5-overview-behavior-fail",
+        "phase5-overview-behavior-incomplete",
+        "phase5-overview-behavior-never-evaluated",
+    ]
+    await _delete_runs(session, run_ids)
+    await _seed_failure_analytics_run(
+        session,
+        run_ids[0],
+        started_at=datetime(2049, 1, 1, tzinfo=UTC),
+        overall_status="pass",
+        primary_category=None,
+        max_severity=None,
+    )
+    await _seed_failure_analytics_run(
+        session,
+        run_ids[1],
+        started_at=datetime(2049, 1, 2, tzinfo=UTC),
+        overall_status="fail",
+        primary_category="policy_violation",
+        max_severity="critical",
+    )
+    await _seed_failure_analytics_run(
+        session,
+        run_ids[2],
+        started_at=datetime(2049, 1, 3, tzinfo=UTC),
+        overall_status="incomplete",
+        primary_category=None,
+        max_severity=None,
+    )
+    await _seed_failure_analytics_run(
+        session,
+        run_ids[3],
+        started_at=datetime(2049, 1, 4, tzinfo=UTC),
+    )
+
+    response = await analytics_client.get(
+        "/v1/analytics/overview",
+        params={
+            "started_after": "2049-01-01T00:00:00Z",
+            "started_before": "2049-01-31T23:59:59Z",
+        },
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["behavioral_pass_rate"] == pytest.approx(1 / 2)
+    assert body["evaluation_counts"] == {
+        "total": 3,
+        "by_overall_status": {
+            "pass": 1,
+            "fail": 1,
+            "incomplete": 1,
+        },
+    }
+
+    await _delete_runs(session, run_ids)
+
+
+async def test_overview_runtime_and_behavioral_rates_are_independent(
+    session: AsyncSession,
+    analytics_client: AsyncClient,
+) -> None:
+    run_ids = [
+        "phase5-overview-independent-success-fail-a",
+        "phase5-overview-independent-success-fail-b",
+        "phase5-overview-independent-error-pass",
+    ]
+    await _delete_runs(session, run_ids)
+    await _seed_failure_analytics_run(
+        session,
+        run_ids[0],
+        started_at=datetime(2050, 1, 1, tzinfo=UTC),
+        overall_status="fail",
+        primary_category="policy_violation",
+        max_severity="critical",
+    )
+    await _seed_failure_analytics_run(
+        session,
+        run_ids[1],
+        started_at=datetime(2050, 1, 2, tzinfo=UTC),
+        overall_status="fail",
+        primary_category="tool_failure",
+        max_severity="error",
+    )
+    await _seed_failure_analytics_run(
+        session,
+        run_ids[2],
+        fixture_name="tool_failure",
+        started_at=datetime(2050, 1, 3, tzinfo=UTC),
+        overall_status="pass",
+        primary_category=None,
+        max_severity=None,
+    )
+
+    response = await analytics_client.get(
+        "/v1/analytics/overview",
+        params={
+            "started_after": "2050-01-01T00:00:00Z",
+            "started_before": "2050-01-31T23:59:59Z",
+        },
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["runtime_success_rate"] == pytest.approx(2 / 3)
+    assert body["behavioral_pass_rate"] == pytest.approx(1 / 3)
+
+    await _delete_runs(session, run_ids)
+
+
+async def test_overview_time_range_scopes_evaluation_counts_and_behavioral_rate(
+    session: AsyncSession,
+    analytics_client: AsyncClient,
+) -> None:
+    in_scope_run_id = "phase5-overview-evaluation-range-in"
+    out_of_scope_run_id = "phase5-overview-evaluation-range-out"
+    await _delete_runs(session, [in_scope_run_id, out_of_scope_run_id])
+    await _seed_failure_analytics_run(
+        session,
+        in_scope_run_id,
+        started_at=datetime(2051, 1, 1, tzinfo=UTC),
+        overall_status="pass",
+        primary_category=None,
+        max_severity=None,
+    )
+    await _seed_failure_analytics_run(
+        session,
+        out_of_scope_run_id,
+        started_at=datetime(2051, 1, 2, tzinfo=UTC),
+        overall_status="fail",
+        primary_category="tool_failure",
+        max_severity="error",
+    )
+
+    response = await analytics_client.get(
+        "/v1/analytics/overview",
+        params={
+            "started_after": "2051-01-01T00:00:00Z",
+            "started_before": "2051-01-01T23:59:59Z",
+        },
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["behavioral_pass_rate"] == 1.0
+    assert body["evaluation_counts"] == {
+        "total": 1,
+        "by_overall_status": {
+            "pass": 1,
+            "fail": 0,
+            "incomplete": 0,
+        },
+    }
+
+    await _delete_runs(session, [in_scope_run_id, out_of_scope_run_id])
+
+
 async def test_overview_analytics_latency_uses_execution_not_wall_clock(
     session: AsyncSession,
     analytics_client: AsyncClient,
@@ -746,12 +909,13 @@ async def _seed_failure_analytics_run(
     session: AsyncSession,
     run_id: str,
     *,
+    fixture_name: str = "healthy_success",
     started_at: datetime,
     overall_status: str | None = None,
     primary_category: str | None = None,
     max_severity: str | None = None,
 ) -> None:
-    event = _overview_event("healthy_success", run_id, started_at=started_at)
+    event = _overview_event(fixture_name, run_id, started_at=started_at)
     await ingest_run_event(session, event)
     if overall_status is not None:
         session.add(
@@ -909,9 +1073,28 @@ async def _expected_overview(
     )
     terminal = [row for row in rows if row.event_type == "run_final"]
     success_count = sum(1 for row in terminal if row.status == "success")
+    run_ids = [row.run_id for row in rows]
+    failures = list(
+        await session.scalars(select(RunFailure).where(RunFailure.run_id.in_(run_ids)))
+    )
+    evaluation_status_counts = {
+        "pass": sum(1 for failure in failures if failure.overall_status == "pass"),
+        "fail": sum(1 for failure in failures if failure.overall_status == "fail"),
+        "incomplete": sum(
+            1 for failure in failures if failure.overall_status == "incomplete"
+        ),
+    }
+    behavioral_denominator = (
+        evaluation_status_counts["pass"] + evaluation_status_counts["fail"]
+    )
     return {
         "runtime_success_rate": (
             success_count / len(terminal) if len(terminal) > 0 else None
+        ),
+        "behavioral_pass_rate": (
+            evaluation_status_counts["pass"] / behavioral_denominator
+            if behavioral_denominator > 0
+            else None
         ),
         "avg_latency_ms": (
             sum(latencies) / len(latencies) if len(latencies) > 0 else None
@@ -933,6 +1116,10 @@ async def _expected_overview(
                     1 for row in rows if row.status == "awaiting_approval"
                 ),
             },
+        },
+        "evaluation_counts": {
+            "total": len(failures),
+            "by_overall_status": evaluation_status_counts,
         },
     }
 

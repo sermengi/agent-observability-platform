@@ -234,9 +234,17 @@ class RunCounts(APIResponseModel):
     by_status: dict[RunStatus, int]
 
 
+class EvaluationCounts(APIResponseModel):
+    total: int
+    by_overall_status: dict[str, int]
+
+
 class OverviewAnalyticsResponse(APIResponseModel):
     runtime_success_rate: float | None = Field(
         description="Populated when at least one terminal run is in scope."
+    )
+    behavioral_pass_rate: float | None = Field(
+        description="Populated when at least one pass/fail evaluation is in scope."
     )
     avg_latency_ms: float | None = Field(
         description="Populated when at least one run has execution latency in scope."
@@ -247,6 +255,7 @@ class OverviewAnalyticsResponse(APIResponseModel):
     usage_total_tokens: int
     usage_total_estimated_cost_usd: float
     run_counts: RunCounts
+    evaluation_counts: EvaluationCounts
 
 
 class ToolStats(APIResponseModel):
