@@ -3,7 +3,8 @@ from typing import Any, ClassVar, cast
 
 import pytest
 from httpx import ASGITransport, AsyncClient
-from sqlalchemy import delete, func, select
+from sqlalchemy import delete, func, insert, select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from obs_platform.config import DatabaseOnlySettings
@@ -175,6 +176,137 @@ async def test_evaluate_twice_appends_results_and_upserts_one_run_failure(
     await _delete_run(session, run_id)
 
 
+async def test_evaluate_pass_verdict_persists_run_failure_without_category(
+    session: AsyncSession,
+    evaluation_client: AsyncClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    run_id = "phase5-overall-pass"
+    await _create_run(session, "healthy_success", run_id)
+    monkeypatch.setattr(
+        runs,
+        "DETERMINISTIC_EVALUATORS",
+        [_FirstEvaluator(), _NotApplicableEvaluator()],
+    )
+
+    response = await evaluation_client.post(f"/v1/runs/{run_id}/evaluate")
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["overall_status"] == "pass"
+    assert body["failure"] == {
+        "primary_category": None,
+        "secondary_category": None,
+        "max_severity": None,
+    }
+    run_failure = await session.get(RunFailure, run_id)
+    assert run_failure is not None
+    assert run_failure.overall_status == "pass"
+    assert run_failure.primary_category is None
+
+    await _delete_run(session, run_id)
+
+
+async def test_evaluate_fail_verdict_wins_over_other_completed_outcomes(
+    session: AsyncSession,
+    evaluation_client: AsyncClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    run_id = "phase5-overall-fail"
+    await _create_run(session, "healthy_success", run_id)
+    monkeypatch.setattr(
+        runs,
+        "DETERMINISTIC_EVALUATORS",
+        [_FirstEvaluator(), _StructuredFailureEvaluator(), _NotApplicableEvaluator()],
+    )
+
+    response = await evaluation_client.post(f"/v1/runs/{run_id}/evaluate")
+
+    assert response.status_code == 200
+    assert response.json()["overall_status"] == "fail"
+    run_failure = await session.get(RunFailure, run_id)
+    assert run_failure is not None
+    assert run_failure.overall_status == "fail"
+
+    await _delete_run(session, run_id)
+
+
+async def test_evaluate_incomplete_when_evaluator_fails_without_confirmed_failure(
+    session: AsyncSession,
+    evaluation_client: AsyncClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    run_id = "phase5-overall-incomplete"
+    await _create_run(session, "healthy_success", run_id)
+    monkeypatch.setattr(
+        runs,
+        "DETERMINISTIC_EVALUATORS",
+        [_FirstEvaluator(), _ExplodingEvaluator(), _SecondEvaluator()],
+    )
+
+    response = await evaluation_client.post(f"/v1/runs/{run_id}/evaluate")
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["overall_status"] == "incomplete"
+    assert body["failure"]["primary_category"] is None
+    run_failure = await session.get(RunFailure, run_id)
+    assert run_failure is not None
+    assert run_failure.overall_status == "incomplete"
+    assert run_failure.primary_category is None
+
+    await _delete_run(session, run_id)
+
+
+async def test_evaluate_fail_precedes_incomplete_when_failure_and_crash_occur(
+    session: AsyncSession,
+    evaluation_client: AsyncClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    run_id = "phase5-overall-fail-before-incomplete"
+    await _create_run(session, "healthy_success", run_id)
+    monkeypatch.setattr(
+        runs,
+        "DETERMINISTIC_EVALUATORS",
+        [_ExplodingEvaluator(), _StructuredFailureEvaluator(), _SecondEvaluator()],
+    )
+
+    response = await evaluation_client.post(f"/v1/runs/{run_id}/evaluate")
+
+    assert response.status_code == 200
+    assert response.json()["overall_status"] == "fail"
+    run_failure = await session.get(RunFailure, run_id)
+    assert run_failure is not None
+    assert run_failure.overall_status == "fail"
+    assert run_failure.primary_category == "output_validation_error"
+
+    await _delete_run(session, run_id)
+
+
+async def test_run_failure_overall_status_rejects_unknown_value(
+    session: AsyncSession,
+) -> None:
+    run_id = "phase5-overall-status-check"
+    await _create_run(session, "healthy_success", run_id)
+
+    with pytest.raises(IntegrityError):
+        await session.execute(
+            insert(RunFailure).values(
+                run_id=run_id,
+                overall_status="unknown",
+                primary_category=None,
+                secondary_category=None,
+                max_severity=None,
+                classifier_version="1.0.0",
+                updated_at=load_fixture("healthy_success").started_at,
+            )
+        )
+        await session.commit()
+    await session.rollback()
+
+    await _delete_run(session, run_id)
+
+
 class _PassingEvaluator(Evaluator):
     def evaluate(self, run: EvaluationRunView) -> EvaluationOutcome:
         return EvaluationOutcome(
@@ -184,6 +316,44 @@ class _PassingEvaluator(Evaluator):
             severity=None,
             reason=f"{run.run_id} passed",
             findings=[],
+        )
+
+
+class _NotApplicableEvaluator(Evaluator):
+    name: ClassVar[str] = "not_applicable"
+    version: ClassVar[str] = "1.0.0"
+    type: ClassVar[EvaluatorType] = EvaluatorType.DETERMINISTIC
+
+    def evaluate(self, run: EvaluationRunView) -> EvaluationOutcome:
+        return EvaluationOutcome(
+            passed=True,
+            score=None,
+            label="not_applicable",
+            severity=None,
+            reason=f"{run.run_id} not applicable",
+            findings=[],
+        )
+
+
+class _StructuredFailureEvaluator(Evaluator):
+    name: ClassVar[str] = "structured_failure"
+    version: ClassVar[str] = "1.0.0"
+    type: ClassVar[EvaluatorType] = EvaluatorType.DETERMINISTIC
+
+    def evaluate(self, run: EvaluationRunView) -> EvaluationOutcome:
+        return EvaluationOutcome(
+            passed=False,
+            score=None,
+            label="fail",
+            severity=None,
+            reason=f"{run.run_id} failed structured output validation",
+            findings=[
+                {
+                    "code": "empty_output",
+                    "message": "Final result output is empty",
+                    "data": {"run_id": run.run_id},
+                }
+            ],
         )
 
 
