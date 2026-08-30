@@ -289,3 +289,28 @@ class UsageAnalyticsResponse(APIResponseModel):
     total: UsageTotals
     by_model: list[ModelUsageBreakdown]
     by_call_type: list[CallTypeUsageBreakdown]
+
+
+class FailureRunCounts(APIResponseModel):
+    total: int
+    by_overall_status: dict[str, int]
+
+
+class FailureTypeBreakdown(APIResponseModel):
+    failure_type: str
+    count: int
+    pct_of_evaluated: float
+    pct_of_failing: float
+
+
+class FailureSeverityBreakdown(APIResponseModel):
+    severity: str
+    count: int
+    pct_of_evaluated: float
+    pct_of_failing: float
+
+
+class FailureAnalyticsResponse(APIResponseModel):
+    run_counts: FailureRunCounts
+    by_failure_type: list[FailureTypeBreakdown]
+    by_severity: list[FailureSeverityBreakdown]

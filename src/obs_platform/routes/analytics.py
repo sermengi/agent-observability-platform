@@ -10,6 +10,10 @@ from sqlalchemy.sql import ColumnElement
 from obs_platform.api.deps import get_session
 from obs_platform.api.v1.schemas import (
     CallTypeUsageBreakdown,
+    FailureAnalyticsResponse,
+    FailureRunCounts,
+    FailureSeverityBreakdown,
+    FailureTypeBreakdown,
     ModelUsageBreakdown,
     OverviewAnalyticsResponse,
     RunCounts,
@@ -18,7 +22,7 @@ from obs_platform.api.v1.schemas import (
     UsageAnalyticsResponse,
     UsageTotals,
 )
-from obs_platform.db.models import AgentRun, LLMCall, ToolCall
+from obs_platform.db.models import AgentRun, LLMCall, RunFailure, ToolCall
 from obs_platform.telemetry.v1.enums import (
     ExecutionStatus,
     LLMCallType,
@@ -261,6 +265,93 @@ async def get_usage(
     )
 
 
+@router.get(
+    "/analytics/failures",
+    response_model=FailureAnalyticsResponse,
+    summary="Get failure analytics",
+)
+async def get_failures(
+    params: Annotated[AnalyticsTimeRangeParams, Query()],
+    session: AsyncSession = Depends(get_session),
+) -> FailureAnalyticsResponse:
+    filters = _time_range_filters(params)
+    evaluated_total = await session.scalar(
+        select(func.count())
+        .select_from(RunFailure)
+        .join(AgentRun, AgentRun.run_id == RunFailure.run_id)
+        .where(*filters)
+    )
+    evaluated_count = int(evaluated_total or 0)
+
+    overall_rows = await session.execute(
+        select(RunFailure.overall_status, func.count())
+        .select_from(RunFailure)
+        .join(AgentRun, AgentRun.run_id == RunFailure.run_id)
+        .where(*filters)
+        .group_by(RunFailure.overall_status)
+    )
+    overall_counts = {"pass": 0, "fail": 0, "incomplete": 0}
+    for overall_status, count in overall_rows:
+        overall_counts[overall_status] = count
+    failing_count = overall_counts["fail"] + overall_counts["incomplete"]
+
+    failure_type_rows = await session.execute(
+        select(
+            RunFailure.primary_category.label("failure_type"),
+            func.count().label("run_count"),
+        )
+        .select_from(RunFailure)
+        .join(AgentRun, AgentRun.run_id == RunFailure.run_id)
+        .where(
+            *filters,
+            RunFailure.overall_status == "fail",
+            RunFailure.primary_category.is_not(None),
+        )
+        .group_by(RunFailure.primary_category)
+        .order_by(func.count().desc(), RunFailure.primary_category.asc())
+    )
+    severity_rows = await session.execute(
+        select(
+            RunFailure.max_severity.label("severity"),
+            func.count().label("run_count"),
+        )
+        .select_from(RunFailure)
+        .join(AgentRun, AgentRun.run_id == RunFailure.run_id)
+        .where(
+            *filters,
+            RunFailure.overall_status == "fail",
+            RunFailure.max_severity.is_not(None),
+        )
+        .group_by(RunFailure.max_severity)
+        .order_by(func.count().desc(), RunFailure.max_severity.asc())
+    )
+
+    return FailureAnalyticsResponse(
+        run_counts=FailureRunCounts(
+            total=evaluated_count,
+            by_overall_status=overall_counts,
+        ),
+        by_failure_type=[
+            FailureTypeBreakdown(
+                failure_type=row.failure_type,
+                count=row.run_count,
+                pct_of_evaluated=_ratio(row.run_count, evaluated_count),
+                pct_of_failing=_ratio(row.run_count, failing_count),
+            )
+            for row in failure_type_rows
+        ],
+        by_severity=[
+            FailureSeverityBreakdown(
+                severity=row.severity,
+                count=row.run_count,
+                pct_of_evaluated=_ratio(row.run_count, evaluated_count),
+                pct_of_failing=_ratio(row.run_count, failing_count),
+            )
+            for row in severity_rows
+        ],
+    )
+
+
 def _time_range_filters(
     params: AnalyticsTimeRangeParams,
 ) -> list[ColumnElement[bool]]:
@@ -270,6 +361,12 @@ def _time_range_filters(
     if params.started_before is not None:
         filters.append(AgentRun.started_at <= params.started_before)
     return filters
+
+
+def _ratio(numerator: int, denominator: int) -> float:
+    if denominator == 0:
+        return 0.0
+    return numerator / denominator
 
 
 def _usage_totals(row: Any) -> UsageTotals:

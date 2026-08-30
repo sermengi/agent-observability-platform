@@ -8,7 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from obs_platform.config import DatabaseOnlySettings
 from obs_platform.database import create_engine
-from obs_platform.db.models import AgentRun, LLMCall, Span, ToolCall
+from obs_platform.db.models import AgentRun, LLMCall, RunFailure, Span, ToolCall
 from obs_platform.ingestion.runs import ingest_run_event
 from obs_platform.main import create_app
 from obs_platform.routes import analytics, runs
@@ -75,6 +75,9 @@ async def test_overview_analytics_aggregates_all_runs_without_time_range(
     assert response.status_code == 200
     body = response.json()
     expected = await _expected_overview(session)
+    assert body.pop("usage_total_estimated_cost_usd") == pytest.approx(
+        expected.pop("usage_total_estimated_cost_usd")
+    )
     assert body == expected
 
     await _delete_runs(session, run_ids)
@@ -480,6 +483,241 @@ async def test_usage_analytics_response_shape_has_no_latency_fields(
     await _delete_runs(session, [run_id])
 
 
+async def test_failure_analytics_counts_evaluated_runs_by_overall_status(
+    session: AsyncSession,
+    analytics_client: AsyncClient,
+) -> None:
+    run_ids = [
+        "phase5-failures-pass",
+        "phase5-failures-policy",
+        "phase5-failures-tool",
+        "phase5-failures-incomplete",
+        "phase5-failures-never-evaluated",
+    ]
+    await _delete_runs(session, run_ids)
+    await _seed_failure_analytics_run(
+        session,
+        run_ids[0],
+        started_at=datetime(2046, 1, 1, tzinfo=UTC),
+        overall_status="pass",
+        primary_category=None,
+        max_severity=None,
+    )
+    await _seed_failure_analytics_run(
+        session,
+        run_ids[1],
+        started_at=datetime(2046, 1, 2, tzinfo=UTC),
+        overall_status="fail",
+        primary_category="policy_violation",
+        max_severity="critical",
+    )
+    await _seed_failure_analytics_run(
+        session,
+        run_ids[2],
+        started_at=datetime(2046, 1, 3, tzinfo=UTC),
+        overall_status="fail",
+        primary_category="tool_failure",
+        max_severity="error",
+    )
+    await _seed_failure_analytics_run(
+        session,
+        run_ids[3],
+        started_at=datetime(2046, 1, 4, tzinfo=UTC),
+        overall_status="incomplete",
+        primary_category=None,
+        max_severity=None,
+    )
+    await _seed_failure_analytics_run(
+        session,
+        run_ids[4],
+        started_at=datetime(2046, 1, 5, tzinfo=UTC),
+    )
+
+    response = await analytics_client.get(
+        "/v1/analytics/failures",
+        params={
+            "started_after": "2046-01-01T00:00:00Z",
+            "started_before": "2046-01-31T23:59:59Z",
+        },
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["run_counts"] == {
+        "total": 4,
+        "by_overall_status": {
+            "pass": 1,
+            "fail": 2,
+            "incomplete": 1,
+        },
+    }
+
+    await _delete_runs(session, run_ids)
+
+
+async def test_failure_analytics_breakdowns_and_percentages(
+    session: AsyncSession,
+    analytics_client: AsyncClient,
+) -> None:
+    run_ids = [
+        "phase5-failures-breakdown-policy",
+        "phase5-failures-breakdown-tool",
+        "phase5-failures-breakdown-trajectory",
+        "phase5-failures-breakdown-pass",
+        "phase5-failures-breakdown-incomplete",
+        "phase5-failures-breakdown-unassigned",
+    ]
+    await _delete_runs(session, run_ids)
+    await _seed_failure_analytics_run(
+        session,
+        run_ids[0],
+        started_at=datetime(2047, 1, 1, tzinfo=UTC),
+        overall_status="fail",
+        primary_category="policy_violation",
+        max_severity="critical",
+    )
+    await _seed_failure_analytics_run(
+        session,
+        run_ids[1],
+        started_at=datetime(2047, 1, 2, tzinfo=UTC),
+        overall_status="fail",
+        primary_category="tool_failure",
+        max_severity="error",
+    )
+    await _seed_failure_analytics_run(
+        session,
+        run_ids[2],
+        started_at=datetime(2047, 1, 3, tzinfo=UTC),
+        overall_status="fail",
+        primary_category="trajectory_error",
+        max_severity="error",
+    )
+    await _seed_failure_analytics_run(
+        session,
+        run_ids[3],
+        started_at=datetime(2047, 1, 4, tzinfo=UTC),
+        overall_status="pass",
+        primary_category=None,
+        max_severity=None,
+    )
+    await _seed_failure_analytics_run(
+        session,
+        run_ids[4],
+        started_at=datetime(2047, 1, 5, tzinfo=UTC),
+        overall_status="incomplete",
+        primary_category=None,
+        max_severity=None,
+    )
+    await _seed_failure_analytics_run(
+        session,
+        run_ids[5],
+        started_at=datetime(2047, 1, 6, tzinfo=UTC),
+        overall_status="fail",
+        primary_category="unknown",
+        max_severity=None,
+    )
+
+    response = await analytics_client.get(
+        "/v1/analytics/failures",
+        params={
+            "started_after": "2047-01-01T00:00:00Z",
+            "started_before": "2047-01-31T23:59:59Z",
+        },
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    by_failure_type = {
+        item["failure_type"]: item for item in body["by_failure_type"]
+    }
+    assert set(by_failure_type) == {
+        "policy_violation",
+        "tool_failure",
+        "trajectory_error",
+        "unknown",
+    }
+    assert sum(item["count"] for item in body["by_failure_type"]) == 4
+    assert by_failure_type["policy_violation"] == {
+        "failure_type": "policy_violation",
+        "count": 1,
+        "pct_of_evaluated": pytest.approx(1 / 6),
+        "pct_of_failing": pytest.approx(1 / 5),
+    }
+    by_severity = {item["severity"]: item for item in body["by_severity"]}
+    assert by_severity == {
+        "critical": {
+            "severity": "critical",
+            "count": 1,
+            "pct_of_evaluated": pytest.approx(1 / 6),
+            "pct_of_failing": pytest.approx(1 / 5),
+        },
+        "error": {
+            "severity": "error",
+            "count": 2,
+            "pct_of_evaluated": pytest.approx(2 / 6),
+            "pct_of_failing": pytest.approx(2 / 5),
+        },
+    }
+    assert "unassigned" not in by_severity
+
+    await _delete_runs(session, run_ids)
+
+
+async def test_failure_analytics_time_range_scopes_by_run_started_at(
+    session: AsyncSession,
+    analytics_client: AsyncClient,
+) -> None:
+    in_scope_run_id = "phase5-failures-range-in"
+    out_of_scope_run_id = "phase5-failures-range-out"
+    await _delete_runs(session, [in_scope_run_id, out_of_scope_run_id])
+    await _seed_failure_analytics_run(
+        session,
+        in_scope_run_id,
+        started_at=datetime(2048, 1, 1, tzinfo=UTC),
+        overall_status="fail",
+        primary_category="policy_violation",
+        max_severity="critical",
+    )
+    await _seed_failure_analytics_run(
+        session,
+        out_of_scope_run_id,
+        started_at=datetime(2048, 1, 2, tzinfo=UTC),
+        overall_status="fail",
+        primary_category="tool_failure",
+        max_severity="error",
+    )
+
+    response = await analytics_client.get(
+        "/v1/analytics/failures",
+        params={
+            "started_after": "2048-01-01T00:00:00Z",
+            "started_before": "2048-01-01T23:59:59Z",
+        },
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["run_counts"]["total"] == 1
+    assert [item["failure_type"] for item in body["by_failure_type"]] == [
+        "policy_violation"
+    ]
+
+    await _delete_runs(session, [in_scope_run_id, out_of_scope_run_id])
+
+
+async def test_failure_analytics_openapi_exposes_only_time_range_params(
+    analytics_client: AsyncClient,
+) -> None:
+    response = await analytics_client.get("/openapi.json")
+
+    assert response.status_code == 200
+    params = response.json()["paths"]["/v1/analytics/failures"]["get"]["parameters"]
+    assert {param["name"] for param in params} == {
+        "started_after",
+        "started_before",
+    }
+
+
 def _fixture_with_run_id(name: str, run_id: str) -> ExtendedRunEvent:
     event = load_fixture(name)
     event.run_id = run_id
@@ -499,9 +737,35 @@ def _overview_event(
 
 
 async def _delete_runs(session: AsyncSession, run_ids: list[str]) -> None:
-    for model in (LLMCall, ToolCall, Span, AgentRun):
+    for model in (RunFailure, LLMCall, ToolCall, Span, AgentRun):
         await session.execute(delete(model).where(model.run_id.in_(run_ids)))
     await session.commit()
+
+
+async def _seed_failure_analytics_run(
+    session: AsyncSession,
+    run_id: str,
+    *,
+    started_at: datetime,
+    overall_status: str | None = None,
+    primary_category: str | None = None,
+    max_severity: str | None = None,
+) -> None:
+    event = _overview_event("healthy_success", run_id, started_at=started_at)
+    await ingest_run_event(session, event)
+    if overall_status is not None:
+        session.add(
+            RunFailure(
+                run_id=run_id,
+                overall_status=overall_status,
+                primary_category=primary_category,
+                secondary_category="retrieval_failure",
+                max_severity=max_severity,
+                classifier_version="1.0.0",
+                updated_at=started_at,
+            )
+        )
+        await session.commit()
 
 
 async def _seed_tool_analytics_run(
