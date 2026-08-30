@@ -31,6 +31,7 @@ async def persist_evaluation_result(
         evaluator_version=evaluator.version,
         regression_run_id=None,
         status=status.value,
+        passed=(completed_result.passed if completed_result is not None else None),
         score=(completed_result.score if completed_result is not None else None),
         label=(completed_result.label if completed_result is not None else None),
         severity=(completed_result.severity if completed_result is not None else None),

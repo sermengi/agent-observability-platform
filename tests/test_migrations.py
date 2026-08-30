@@ -31,7 +31,7 @@ async def test_initial_migration_is_empty_domain_bootstrap() -> None:
         "migrations/versions/20260825_0001_initial_empty_bootstrap.py"
     )
 
-    assert len(migration_files) == 4
+    assert len(migration_files) == 5
     migration = initial_migration.read_text()
     assert "op.create_table" not in migration
     assert "op.drop_table" not in migration
@@ -200,6 +200,16 @@ async def test_phase_5_evaluation_status_snapshot_migration() -> None:
     assert "ck_run_failures_overall_status" in migration
 
 
+async def test_phase_5_evaluation_result_passed_migration() -> None:
+    migration = Path(
+        "migrations/versions/20260830_0005_add_evaluation_result_passed.py"
+    ).read_text()
+
+    assert 'down_revision: str | Sequence[str] | None = "20260830_0004"' in migration
+    assert '"passed"' in migration
+    assert "sa.Boolean()" in migration
+
+
 async def test_phase_2_jsonb_array_and_double_precision_columns() -> None:
     agent_runs = cast(Table, models.AgentRun.__table__)
     spans = cast(Table, models.Span.__table__)
@@ -324,6 +334,7 @@ async def test_phase_2_relational_policy_columns_are_not_jsonb() -> None:
             "evaluator_version",
             "regression_run_id",
             "status",
+            "passed",
             "score",
             "label",
             "severity",

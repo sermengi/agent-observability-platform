@@ -1,8 +1,9 @@
+import inspect
 from collections.abc import AsyncIterator
 from typing import Any, cast
 
 import pytest
-from sqlalchemy import delete, func, select
+from sqlalchemy import delete, func, insert, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
@@ -71,6 +72,7 @@ async def test_persisted_rows_use_completed_status_and_no_regression_run(
         _evaluator("structured_output"),
         EvaluatorExecutionStatus.COMPLETED,
         _result(
+            passed=False,
             score=0.5,
             label="fail",
             severity=None,
@@ -89,6 +91,7 @@ async def test_persisted_rows_use_completed_status_and_no_regression_run(
     assert record.regression_run_id is None
     assert record.evaluator_name == "structured_output"
     assert record.evaluator_version == "1.0.0"
+    assert record.passed is False
     assert record.score == 0.5
     assert record.label == "fail"
     assert record.severity is None
@@ -102,6 +105,92 @@ async def test_persisted_rows_use_completed_status_and_no_regression_run(
     ]
 
     await _delete_run(session, run_id)
+
+
+async def test_failed_evaluator_row_nulls_out_outcome_fields(
+    session: AsyncSession,
+) -> None:
+    run_id = "phase5-evaluation-result-failed-status"
+    await _create_run(session, run_id)
+
+    record = await persist_evaluation_result(
+        session,
+        run_id,
+        _evaluator("policy"),
+        EvaluatorExecutionStatus.FAILED,
+        _result(
+            passed=False,
+            score=0.2,
+            label="fail",
+            severity="critical",
+            reason="RuntimeError: forced evaluator failure",
+            findings=[
+                {
+                    "code": "evaluator_exception",
+                    "message": "Evaluator raised an exception",
+                    "data": {
+                        "exception_type": "RuntimeError",
+                        "message": "forced evaluator failure",
+                    },
+                }
+            ],
+        ),
+    )
+
+    assert record.status == "failed"
+    assert record.passed is None
+    assert record.score is None
+    assert record.label is None
+    assert record.severity is None
+    assert record.reason == "RuntimeError: forced evaluator failure"
+    assert record.findings == [
+        {
+            "code": "evaluator_exception",
+            "message": "Evaluator raised an exception",
+            "data": {
+                "exception_type": "RuntimeError",
+                "message": "forced evaluator failure",
+            },
+        }
+    ]
+
+    await _delete_run(session, run_id)
+
+
+async def test_evaluation_result_status_rejects_unknown_value(
+    session: AsyncSession,
+) -> None:
+    run_id = "phase5-evaluation-result-status-check"
+    await _create_run(session, run_id)
+
+    with pytest.raises(IntegrityError):
+        await session.execute(
+            insert(EvaluationResultRecord).values(
+                run_id=run_id,
+                evaluator_name="test",
+                evaluator_version="1.0.0",
+                regression_run_id=None,
+                status="not-a-status",
+                passed=True,
+                score=1.0,
+                label="pass",
+                severity=None,
+                reason="invalid status",
+                findings=[],
+                created_at=load_fixture("healthy_success").started_at,
+            )
+        )
+        await session.commit()
+    await session.rollback()
+
+    await _delete_run(session, run_id)
+
+
+def test_persist_evaluation_result_requires_explicit_status_argument() -> None:
+    signature = inspect.signature(persist_evaluation_result)
+
+    assert "status" in signature.parameters
+    assert signature.parameters["status"].default is inspect.Signature.empty
 
 
 async def test_later_persistence_failure_does_not_roll_back_prior_commits(

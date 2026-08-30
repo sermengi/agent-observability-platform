@@ -276,6 +276,7 @@ class EvaluationResult(Base):
     evaluator_version: Mapped[str] = mapped_column(Text, nullable=False)
     regression_run_id: Mapped[int | None] = mapped_column(Integer)
     status: Mapped[str] = mapped_column(Text, nullable=False)
+    passed: Mapped[bool | None] = mapped_column()
     score: Mapped[float | None] = mapped_column(DOUBLE_PRECISION)
     label: Mapped[str | None] = mapped_column(Text)
     severity: Mapped[str | None] = mapped_column(Text)
