@@ -1,5 +1,5 @@
 from abc import ABC, abstractmethod
-from typing import ClassVar
+from typing import Any, ClassVar
 
 from obs_platform.evaluation.types import (
     EvaluationResult,
@@ -15,4 +15,11 @@ class Evaluator(ABC):
 
     @abstractmethod
     def evaluate(self, run: EvaluationRunView) -> EvaluationResult:
+        raise NotImplementedError
+
+    async def evaluate_async(
+        self,
+        run: EvaluationRunView,
+        call_log: list[Any],
+    ) -> EvaluationResult:
         raise NotImplementedError

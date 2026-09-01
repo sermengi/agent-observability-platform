@@ -40,6 +40,7 @@ from obs_platform.evaluation.types import (
     EvaluationResult,
     EvaluationRunView,
     EvaluatorExecutionStatus,
+    EvaluatorType,
     LLMCallView,
     SpanView,
     ToolCallView,
@@ -139,8 +140,14 @@ async def evaluate_run(
     evaluated_at = datetime.now(UTC)
     outcomes: list[EvaluatorOutcome] = []
     for evaluator in DETERMINISTIC_EVALUATORS:
+        call_log: list[object] = []
         try:
-            result = evaluator.evaluate(run)
+            if evaluator.type is EvaluatorType.DETERMINISTIC:
+                result = evaluator.evaluate(run)
+            elif evaluator.type is EvaluatorType.LLM_BASED:
+                result = await evaluator.evaluate_async(run, call_log)
+            else:
+                raise ValueError(f"unsupported evaluator type: {evaluator.type}")
             status = EvaluatorExecutionStatus.COMPLETED
         except Exception as exc:
             result = _evaluator_exception_result(exc)

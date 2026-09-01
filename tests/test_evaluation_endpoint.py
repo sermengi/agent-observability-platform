@@ -125,6 +125,36 @@ async def test_evaluator_exception_does_not_block_other_evaluators(
     await _delete_run(session, run_id)
 
 
+async def test_evaluate_dispatches_deterministic_and_llm_based_evaluators(
+    session: AsyncSession,
+    evaluation_client: AsyncClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    run_id = "phase6-evaluate-mixed-evaluator-types"
+    await _create_run(session, "healthy_success", run_id)
+    evaluators = [_FirstEvaluator(), _AsyncEvaluator()]
+    monkeypatch.setattr(runs, "DETERMINISTIC_EVALUATORS", evaluators)
+
+    response = await evaluation_client.post(f"/v1/runs/{run_id}/evaluate")
+
+    assert response.status_code == 200
+    body = response.json()
+    assert [item["evaluator_name"] for item in body["evaluator_results"]] == [
+        "first",
+        "async_judge",
+    ]
+    assert [item["execution_status"] for item in body["evaluator_results"]] == [
+        "completed",
+        "completed",
+    ]
+    assert body["evaluator_results"][1]["reason"] == (
+        f"{run_id} passed asynchronously"
+    )
+    assert await _evaluation_result_count(session, run_id) == 2
+
+    await _delete_run(session, run_id)
+
+
 async def test_evaluate_response_is_dedicated_schema_without_run_detail_fields(
     session: AsyncSession,
     evaluation_client: AsyncClient,
@@ -448,6 +478,27 @@ class _ExplodingEvaluator(Evaluator):
 
     def evaluate(self, run: EvaluationRunView) -> EvaluationOutcome:
         raise RuntimeError("forced evaluator failure")
+
+
+class _AsyncEvaluator(Evaluator):
+    name: ClassVar[str] = "async_judge"
+    version: ClassVar[str] = "1.0.0"
+    type: ClassVar[EvaluatorType] = EvaluatorType.LLM_BASED
+
+    def evaluate(self, run: EvaluationRunView) -> EvaluationOutcome:
+        raise AssertionError("LLM-based evaluator should use evaluate_async")
+
+    async def evaluate_async(
+        self, run: EvaluationRunView, call_log: list[Any]
+    ) -> EvaluationOutcome:
+        return EvaluationOutcome(
+            passed=True,
+            score=1.0,
+            label="pass",
+            severity=None,
+            reason=f"{run.run_id} passed asynchronously",
+            findings=[],
+        )
 
 
 async def _create_run(session: AsyncSession, fixture_name: str, run_id: str) -> None:
