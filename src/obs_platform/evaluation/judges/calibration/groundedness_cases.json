@@ -1,0 +1,92 @@
+{
+  "cases": [
+    {
+      "case_id": "grounded_asset_status",
+      "evidence_texts": [
+        "get_asset_status: {'asset_id': 'PUMP-101', 'status': 'running', 'fault_code': 'FE-002'}",
+        "get_current_readings: {'asset_id': 'PUMP-101', 'temperature_c': 82.4, 'vibration_mm_s': 4.1}"
+      ],
+      "answer_text": "PUMP-101 is running with fault code FE-002. Its latest readings are 82.4 C and 4.1 mm/s vibration.",
+      "expected_label": "grounded",
+      "notes": "Every factual claim is copied directly from the tool results."
+    },
+    {
+      "case_id": "grounded_policy_limit",
+      "evidence_texts": [
+        "get_asset_status: {'asset_id': 'COMP-7', 'status': 'running', 'pressure_bar': 10.8}",
+        "get_plant_policy: {'policy_id': 'POL-COMP-PRESSURE', 'max_pressure_bar': 11.0, 'action': 'monitor'}"
+      ],
+      "answer_text": "COMP-7 is running at 10.8 bar, below the 11.0 bar policy limit, so the policy action is monitor.",
+      "expected_label": "grounded",
+      "notes": "The answer combines two observed values without adding external facts."
+    },
+    {
+      "case_id": "grounded_maintenance_history",
+      "evidence_texts": [
+        "get_maintenance_history: {'asset_id': 'MIXER-4', 'work_orders': ['WO-991'], 'last_action': 'bearing inspection', 'last_action_date': '2026-08-29'}"
+      ],
+      "answer_text": "MIXER-4 has maintenance history WO-991, and the last recorded action was a bearing inspection on 2026-08-29.",
+      "expected_label": "grounded",
+      "notes": "The answer restates maintenance history fields exactly."
+    },
+    {
+      "case_id": "unsupported_issue_003_seal_replacement",
+      "evidence_texts": [
+        "get_asset_status: {'status': 'running', 'fault_code': 'FE-002'}",
+        "get_maintenance_history: {'work_orders': ['WO-001'], 'last_action': 'bearing inspection'}"
+      ],
+      "answer_text": "PUMP-101 is running, and its seal was replaced yesterday.",
+      "expected_label": "unsupported",
+      "notes": "ISSUE-003 fixture case: the seal replacement claim appears in the final answer but not in the tool results."
+    },
+    {
+      "case_id": "unsupported_unseen_temperature",
+      "evidence_texts": [
+        "get_asset_status: {'asset_id': 'PUMP-205', 'status': 'running', 'fault_code': null}",
+        "get_maintenance_history: {'asset_id': 'PUMP-205', 'last_action': 'lubrication'}"
+      ],
+      "answer_text": "PUMP-205 is running normally at 74 C after lubrication.",
+      "expected_label": "unsupported",
+      "notes": "The temperature and normal-condition judgment are not present in the evidence."
+    },
+    {
+      "case_id": "unsupported_created_work_order",
+      "evidence_texts": [
+        "get_asset_status: {'asset_id': 'VALVE-3', 'status': 'stuck_open'}",
+        "get_plant_policy: {'asset_class': 'valve', 'requires_approval_before_work_order': true}"
+      ],
+      "answer_text": "A corrective work order has been created for VALVE-3.",
+      "expected_label": "unsupported",
+      "notes": "The evidence supports a possible need for action, but no tool result records work-order creation."
+    },
+    {
+      "case_id": "ambiguous_fault_code_inference",
+      "evidence_texts": [
+        "get_asset_status: {'asset_id': 'PUMP-101', 'status': 'running', 'fault_code': 'FE-002'}",
+        "lookup_fault_code: {'fault_code': 'FE-002', 'description': 'flow efficiency below target'}"
+      ],
+      "answer_text": "PUMP-101 appears to be operating with reduced flow efficiency.",
+      "expected_label": "ambiguous",
+      "notes": "Reasonable paraphrase of a code description, but less literal than the grounded cases."
+    },
+    {
+      "case_id": "ambiguous_trend_interpretation",
+      "evidence_texts": [
+        "get_recent_readings: {'asset_id': 'COMP-7', 'pressure_bar': [9.8, 10.1, 10.5], 'window_minutes': 30}"
+      ],
+      "answer_text": "COMP-7 pressure is trending upward.",
+      "expected_label": "ambiguous",
+      "notes": "The series increases across the window, but no trend analysis tool explicitly labels it."
+    },
+    {
+      "case_id": "ambiguous_policy_recommendation",
+      "evidence_texts": [
+        "get_asset_status: {'asset_id': 'MIXER-4', 'status': 'running', 'vibration_mm_s': 6.2}",
+        "get_plant_policy: {'asset_class': 'mixer', 'vibration_warning_mm_s': 6.0, 'recommended_action': 'schedule inspection'}"
+      ],
+      "answer_text": "MIXER-4 should be scheduled for inspection because vibration is above the warning threshold.",
+      "expected_label": "ambiguous",
+      "notes": "The recommendation follows policy, but the phrasing moves from observed rule to advice."
+    }
+  ]
+}
