@@ -198,14 +198,7 @@ async def test_evaluate_uses_configured_judge_settings_for_llm_judges(
         return _PassingJudgeClient()
 
     monkeypatch.setattr(runs, "create_judge_client", fake_create_judge_client)
-    monkeypatch.setattr(
-        runs,
-        "get_judge_settings",
-        lambda: JudgeSettings(
-            anthropic_api_key="test-key",
-            model="configured-model",
-        ),
-    )
+    monkeypatch.setattr(runs, "get_judge_settings", _configured_judge_settings)
 
     response = await evaluation_client.post(f"/v1/runs/{run_id}/evaluate")
 
@@ -274,6 +267,7 @@ async def test_evaluate_dispatches_deterministic_and_llm_based_evaluators(
     await _create_run(session, "healthy_success", run_id)
     evaluators = [_FirstEvaluator(), _AsyncEvaluator()]
     monkeypatch.setattr(runs, "DETERMINISTIC_EVALUATORS", evaluators)
+    monkeypatch.setattr(runs, "get_judge_settings", _configured_judge_settings)
 
     response = await evaluation_client.post(f"/v1/runs/{run_id}/evaluate")
 
@@ -303,6 +297,7 @@ async def test_evaluate_persists_judge_call_log_entries_for_llm_based_evaluator(
     run_id = "phase6-evaluate-persists-judge-calls"
     await _create_run(session, "healthy_success", run_id)
     monkeypatch.setattr(runs, "DETERMINISTIC_EVALUATORS", [_AsyncLoggingEvaluator()])
+    monkeypatch.setattr(runs, "get_judge_settings", _configured_judge_settings)
 
     response = await evaluation_client.post(f"/v1/runs/{run_id}/evaluate")
 
@@ -332,6 +327,7 @@ async def test_evaluate_persists_judge_call_log_entries_when_evaluator_raises(
     run_id = "phase6-evaluate-persists-failed-judge-calls"
     await _create_run(session, "healthy_success", run_id)
     monkeypatch.setattr(runs, "DETERMINISTIC_EVALUATORS", [_AsyncExplodingEvaluator()])
+    monkeypatch.setattr(runs, "get_judge_settings", _configured_judge_settings)
 
     response = await evaluation_client.post(f"/v1/runs/{run_id}/evaluate")
 
@@ -356,6 +352,7 @@ async def test_evaluate_persists_all_retry_attempts_when_judge_validation_exhaus
     run_id = "phase6-evaluate-persists-exhausted-judge-retries"
     await _create_run(session, "healthy_success", run_id)
     monkeypatch.setattr(runs, "DETERMINISTIC_EVALUATORS", [_RetryExhaustingEvaluator()])
+    monkeypatch.setattr(runs, "get_judge_settings", _configured_judge_settings)
 
     response = await evaluation_client.post(f"/v1/runs/{run_id}/evaluate")
 
@@ -385,6 +382,7 @@ async def test_judge_call_persistence_failure_leaves_evaluation_and_failure_comm
     run_id = "phase6-judge-call-persist-failure"
     await _create_run(session, "healthy_success", run_id)
     monkeypatch.setattr(runs, "DETERMINISTIC_EVALUATORS", [_AsyncLoggingEvaluator()])
+    monkeypatch.setattr(runs, "get_judge_settings", _configured_judge_settings)
 
     async def fail_persist_judge_call(*args: object, **kwargs: object) -> None:
         raise RuntimeError("forced judge call persistence failure")
@@ -412,6 +410,7 @@ async def test_run_failure_persistence_failure_leaves_judge_calls_committed(
     run_id = "phase6-run-failure-persist-failure-with-judge-call"
     await _create_run(session, "healthy_success", run_id)
     monkeypatch.setattr(runs, "DETERMINISTIC_EVALUATORS", [_AsyncLoggingEvaluator()])
+    monkeypatch.setattr(runs, "get_judge_settings", _configured_judge_settings)
 
     async def fail_persist_run_failure(*args: object, **kwargs: object) -> None:
         raise RuntimeError("forced run failure persistence failure")
@@ -888,6 +887,10 @@ class _RetryExhaustingEvaluator(Evaluator):
             call_log=call_log,
         )
         raise AssertionError("retry exhaustion should raise first")
+
+
+def _configured_judge_settings() -> JudgeSettings:
+    return JudgeSettings(anthropic_api_key="test-key", model="configured-model")
 
 
 def _judge_call_result() -> JudgeCallResult[_JudgeOutput]:

@@ -37,7 +37,6 @@ class UncertaintyJudge(Evaluator):
     name = "uncertainty"
     version = "1.0.0"
     type = EvaluatorType.LLM_BASED
-    requires_judge_credentials = True
 
     def __init__(self, judge_client: JudgeClient | None = None) -> None:
         self._judge_client = judge_client

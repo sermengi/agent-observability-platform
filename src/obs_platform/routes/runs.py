@@ -161,12 +161,11 @@ async def evaluate_run(
                 if active_evaluator.type is EvaluatorType.DETERMINISTIC:
                     result = active_evaluator.evaluate(run)
                 elif active_evaluator.type is EvaluatorType.LLM_BASED:
-                    if _requires_judge_credentials(active_evaluator):
-                        if judge_client is None:
-                            judge_client = create_judge_client(judge_settings)
-                        active_evaluator = _with_judge_client(
-                            active_evaluator, judge_client
-                        )
+                    if judge_client is None:
+                        judge_client = create_judge_client(judge_settings)
+                    active_evaluator = _with_judge_client(
+                        active_evaluator, judge_client
+                    )
                     result = await active_evaluator.evaluate_async(run, call_log)
                 else:
                     raise ValueError(
@@ -685,13 +684,8 @@ def _should_skip_unconfigured_judge(
 ) -> bool:
     return (
         evaluator.type is EvaluatorType.LLM_BASED
-        and _requires_judge_credentials(evaluator)
         and not judge_settings.is_configured
     )
-
-
-def _requires_judge_credentials(evaluator: Evaluator) -> bool:
-    return bool(getattr(evaluator, "requires_judge_credentials", False))
 
 
 def _with_judge_client(evaluator: Evaluator, judge_client: JudgeClient) -> Evaluator:
@@ -706,7 +700,7 @@ def _with_judge_client(evaluator: Evaluator, judge_client: JudgeClient) -> Evalu
 
 def _judge_unavailable_result() -> EvaluationResult:
     return EvaluationResult(
-        passed=True,
+        passed=False,
         score=None,
         label=None,
         severity=None,
