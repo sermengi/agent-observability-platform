@@ -4,11 +4,20 @@ from abc import ABC, abstractmethod
 from time import monotonic
 from typing import Any
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, ValidationError
 
 from obs_platform.config import JudgeSettings
 
 STRUCTURED_OUTPUT_TOOL_NAME = "structured_judge_output"
+MAX_STRUCTURED_OUTPUT_ATTEMPTS = 3
+
+
+class JudgeOutputValidationError(ValueError):
+    pass
+
+
+class RawJudgeOutputError(ValueError):
+    pass
 
 
 class RawJudgeCompletion(BaseModel):
@@ -43,15 +52,75 @@ class JudgeClient(ABC):
         response_model: type[T],
         call_log: list[JudgeCallResult[Any]] | None = None,
     ) -> JudgeCallResult[T]:
-        started_at = monotonic()
-        raw_completion = await self._raw_complete(
-            prompt=prompt,
-            schema=response_model.model_json_schema(),
-        )
-        latency_ms = round((monotonic() - started_at) * 1000)
+        current_prompt = prompt
+        schema = response_model.model_json_schema()
+        last_validation_error: str | None = None
 
-        result: JudgeCallResult[T] = JudgeCallResult(
-            output=response_model.model_validate(raw_completion.output),
+        for attempt_index in range(MAX_STRUCTURED_OUTPUT_ATTEMPTS):
+            started_at = monotonic()
+            try:
+                raw_completion = await self._raw_complete(
+                    prompt=current_prompt,
+                    schema=schema,
+                )
+            except RawJudgeOutputError as exc:
+                last_validation_error = str(exc)
+                _append_call_log(
+                    call_log,
+                    self._raw_failed_call(round((monotonic() - started_at) * 1000)),
+                )
+                if attempt_index == MAX_STRUCTURED_OUTPUT_ATTEMPTS - 1:
+                    raise JudgeOutputValidationError(last_validation_error) from exc
+                current_prompt = _validation_retry_prompt(
+                    original_prompt=prompt,
+                    invalid_response={},
+                    validation_error=last_validation_error,
+                )
+                continue
+            except Exception:
+                _append_call_log(
+                    call_log,
+                    self._raw_failed_call(round((monotonic() - started_at) * 1000)),
+                )
+                raise
+
+            latency_ms = round((monotonic() - started_at) * 1000)
+            try:
+                output = response_model.model_validate(raw_completion.output)
+            except ValidationError as exc:
+                last_validation_error = str(exc)
+                _append_call_log(
+                    call_log,
+                    self._raw_attempt_call(raw_completion, latency_ms),
+                )
+                if attempt_index == MAX_STRUCTURED_OUTPUT_ATTEMPTS - 1:
+                    raise JudgeOutputValidationError(last_validation_error) from exc
+                current_prompt = _validation_retry_prompt(
+                    original_prompt=prompt,
+                    invalid_response=raw_completion.output,
+                    validation_error=last_validation_error,
+                )
+                continue
+
+            result: JudgeCallResult[T] = JudgeCallResult(
+                output=output,
+                model=self.model,
+                provider=self.provider,
+                latency_ms=latency_ms,
+                prompt_tokens=raw_completion.prompt_tokens,
+                completion_tokens=raw_completion.completion_tokens,
+                estimated_cost_usd=raw_completion.estimated_cost_usd,
+            )
+            _append_call_log(call_log, result)
+            return result
+
+        raise JudgeOutputValidationError(last_validation_error or "invalid output")
+
+    def _raw_attempt_call(
+        self, raw_completion: RawJudgeCompletion, latency_ms: int
+    ) -> JudgeCallResult[Any]:
+        return JudgeCallResult[Any](
+            output=raw_completion.output,
             model=self.model,
             provider=self.provider,
             latency_ms=latency_ms,
@@ -59,9 +128,17 @@ class JudgeClient(ABC):
             completion_tokens=raw_completion.completion_tokens,
             estimated_cost_usd=raw_completion.estimated_cost_usd,
         )
-        if call_log is not None:
-            call_log.append(result)
-        return result
+
+    def _raw_failed_call(self, latency_ms: int) -> JudgeCallResult[Any]:
+        return JudgeCallResult[Any](
+            output={},
+            model=self.model,
+            provider=self.provider,
+            latency_ms=latency_ms,
+            prompt_tokens=0,
+            completion_tokens=0,
+            estimated_cost_usd=0.0,
+        )
 
     @abstractmethod
     async def _raw_complete(
@@ -132,6 +209,29 @@ def create_judge_client(settings: JudgeSettings) -> JudgeClient:
         )
 
 
+def _append_call_log(
+    call_log: list[JudgeCallResult[Any]] | None,
+    result: JudgeCallResult[Any],
+) -> None:
+    if call_log is not None:
+        call_log.append(result)
+
+
+def _validation_retry_prompt(
+    *,
+    original_prompt: str,
+    invalid_response: dict[str, Any],
+    validation_error: str,
+) -> str:
+    return (
+        f"{original_prompt}\n\n"
+        "Previous judge response failed validation. Return a corrected structured "
+        "tool response that matches the schema exactly.\n"
+        f"Invalid response: {invalid_response}\n"
+        f"Validation error: {validation_error}"
+    )
+
+
 def _extract_forced_tool_input(message: Any) -> dict[str, Any]:
     for block in message.content:
         if (
@@ -140,10 +240,14 @@ def _extract_forced_tool_input(message: Any) -> dict[str, Any]:
         ):
             tool_input = block.input
             if not isinstance(tool_input, dict):
-                raise TypeError("structured judge tool input must be an object")
+                raise RawJudgeOutputError(
+                    "structured judge tool input must be an object"
+                )
             return tool_input
 
-    raise ValueError("judge response did not include the forced structured tool call")
+    raise RawJudgeOutputError(
+        "judge response did not include the forced structured tool call"
+    )
 
 
 def _estimate_anthropic_cost_usd(

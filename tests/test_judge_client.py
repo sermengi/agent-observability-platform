@@ -3,19 +3,22 @@ from inspect import isabstract
 from typing import Any
 
 import pytest
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict
 
 from obs_platform.config import JudgeSettings, Settings
 from obs_platform.evaluation.judges.client import (
     AnthropicJudgeClient,
     JudgeCallResult,
     JudgeClient,
+    JudgeOutputValidationError,
     RawJudgeCompletion,
     create_judge_client,
 )
 
 
 class ExampleJudgeOutput(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     verdict: str
 
 
@@ -35,6 +38,24 @@ class MockJudgeClient(JudgeClient):
             prompt_tokens=17,
             completion_tokens=5,
             estimated_cost_usd=0.00042,
+        )
+
+
+class SequencedJudgeClient(JudgeClient):
+    def __init__(self, outputs: list[dict[str, Any]]) -> None:
+        super().__init__(provider="mock-provider", model="mock-model")
+        self.outputs = outputs
+        self.prompts: list[str] = []
+
+    async def _raw_complete(
+        self, prompt: str, schema: dict[str, Any]
+    ) -> RawJudgeCompletion:
+        self.prompts.append(prompt)
+        return RawJudgeCompletion(
+            output=self.outputs[len(self.prompts) - 1],
+            prompt_tokens=10 + len(self.prompts),
+            completion_tokens=5,
+            estimated_cost_usd=0.001,
         )
 
 
@@ -158,3 +179,80 @@ async def test_anthropic_client_uses_forced_tool_calling() -> None:
     assert result.output == ExampleJudgeOutput(verdict="pass")
     assert result.prompt_tokens == 11
     assert result.completion_tokens == 7
+
+
+async def test_generate_structured_retries_invalid_schema_output_twice() -> None:
+    client = SequencedJudgeClient(
+        [
+            {"verdict": "pass", "extra": "not allowed"},
+            {"wrong_field": "pass"},
+            {"verdict": "pass"},
+        ]
+    )
+    call_log: list[JudgeCallResult[Any]] = []
+
+    result = await client.generate_structured(
+        prompt="Judge this answer.",
+        response_model=ExampleJudgeOutput,
+        call_log=call_log,
+    )
+
+    assert result.output == ExampleJudgeOutput(verdict="pass")
+    assert len(call_log) == 3
+    assert call_log[0].output == {"verdict": "pass", "extra": "not allowed"}
+    assert call_log[1].output == {"wrong_field": "pass"}
+    assert call_log[2] == result
+    assert len(client.prompts) == 3
+    assert client.prompts[0] == "Judge this answer."
+    assert "Previous judge response failed validation" in client.prompts[1]
+    assert "extra_forbidden" in client.prompts[1]
+    assert "Field required" in client.prompts[2]
+
+
+async def test_generate_structured_raises_after_retry_budget_exhausted() -> None:
+    client = SequencedJudgeClient(
+        [
+            {"wrong_field": "one"},
+            {"wrong_field": "two"},
+            {"wrong_field": "three"},
+        ]
+    )
+    call_log: list[JudgeCallResult[Any]] = []
+
+    with pytest.raises(JudgeOutputValidationError):
+        await client.generate_structured(
+            prompt="Judge this answer.",
+            response_model=ExampleJudgeOutput,
+            call_log=call_log,
+        )
+
+    assert len(call_log) == 3
+    assert len(client.prompts) == 3
+
+
+async def test_generate_structured_does_not_retry_transport_error() -> None:
+    class TransportErrorJudgeClient(JudgeClient):
+        def __init__(self) -> None:
+            super().__init__(provider="mock-provider", model="mock-model")
+            self.attempts = 0
+
+        async def _raw_complete(
+            self, prompt: str, schema: dict[str, Any]
+        ) -> RawJudgeCompletion:
+            self.attempts += 1
+            raise TimeoutError("provider timed out")
+
+    client = TransportErrorJudgeClient()
+    call_log: list[JudgeCallResult[Any]] = []
+
+    with pytest.raises(TimeoutError):
+        await client.generate_structured(
+            prompt="Judge this answer.",
+            response_model=ExampleJudgeOutput,
+            call_log=call_log,
+        )
+
+    assert client.attempts == 1
+    assert len(call_log) == 1
+    assert call_log[0].output == {}
+    assert call_log[0].prompt_tokens == 0

@@ -21,7 +21,11 @@ from obs_platform.db.models import (
 from obs_platform.db.models import ToolCall as ToolCallRecord
 from obs_platform.evaluation.base import Evaluator
 from obs_platform.evaluation.classifier import FailureClassifier, RunFailureResult
-from obs_platform.evaluation.judges.client import JudgeCallResult
+from obs_platform.evaluation.judges.client import (
+    JudgeCallResult,
+    JudgeClient,
+    RawJudgeCompletion,
+)
 from obs_platform.evaluation.types import EvaluationResult as EvaluationOutcome
 from obs_platform.evaluation.types import (
     EvaluationRunView,
@@ -207,6 +211,35 @@ async def test_evaluate_persists_judge_call_log_entries_when_evaluator_raises(
     assert len(rows) == 1
     assert rows[0].evaluator_name == "async_exploding_judge"
     assert rows[0].succeeded is False
+
+    await _delete_run(session, run_id)
+
+
+async def test_evaluate_persists_all_retry_attempts_when_judge_validation_exhausts(
+    session: AsyncSession,
+    evaluation_client: AsyncClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    run_id = "phase6-evaluate-persists-exhausted-judge-retries"
+    await _create_run(session, "healthy_success", run_id)
+    monkeypatch.setattr(runs, "DETERMINISTIC_EVALUATORS", [_RetryExhaustingEvaluator()])
+
+    response = await evaluation_client.post(f"/v1/runs/{run_id}/evaluate")
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["evaluator_results"][0]["execution_status"] == "failed"
+    rows = list(
+        await session.scalars(
+            select(JudgeCall)
+            .where(JudgeCall.run_id == run_id)
+            .order_by(JudgeCall.id)
+        )
+    )
+    assert len(rows) == 3
+    assert all(row.evaluator_name == "retry_exhausting_judge" for row in rows)
+    assert all(row.succeeded is False for row in rows)
+    assert [row.prompt_tokens for row in rows] == [11, 12, 13]
 
     await _delete_run(session, run_id)
 
@@ -650,6 +683,49 @@ class _AsyncExplodingEvaluator(Evaluator):
     ) -> EvaluationOutcome:
         call_log.append(_judge_call_result())
         raise RuntimeError("forced async evaluator failure")
+
+
+class _RetryOutput(BaseModel):
+    verdict: str
+
+
+class _AlwaysInvalidJudgeClient(JudgeClient):
+    def __init__(self) -> None:
+        super().__init__(provider="judge-provider", model="judge-model")
+        self.attempts = 0
+
+    async def _raw_complete(
+        self, prompt: str, schema: dict[str, Any]
+    ) -> RawJudgeCompletion:
+        self.attempts += 1
+        return RawJudgeCompletion(
+            output={"wrong_field": f"attempt-{self.attempts}"},
+            prompt_tokens=10 + self.attempts,
+            completion_tokens=6,
+            estimated_cost_usd=0.0009,
+        )
+
+
+class _RetryExhaustingEvaluator(Evaluator):
+    name: ClassVar[str] = "retry_exhausting_judge"
+    version: ClassVar[str] = "1.0.0"
+    type: ClassVar[EvaluatorType] = EvaluatorType.LLM_BASED
+
+    def __init__(self) -> None:
+        self.client = _AlwaysInvalidJudgeClient()
+
+    def evaluate(self, run: EvaluationRunView) -> EvaluationOutcome:
+        raise AssertionError("LLM-based evaluator should use evaluate_async")
+
+    async def evaluate_async(
+        self, run: EvaluationRunView, call_log: list[Any]
+    ) -> EvaluationOutcome:
+        await self.client.generate_structured(
+            prompt="Judge this answer.",
+            response_model=_RetryOutput,
+            call_log=call_log,
+        )
+        raise AssertionError("retry exhaustion should raise first")
 
 
 def _judge_call_result() -> JudgeCallResult[_JudgeOutput]:

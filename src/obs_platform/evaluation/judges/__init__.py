@@ -2,6 +2,7 @@ from obs_platform.evaluation.judges.client import (
     AnthropicJudgeClient,
     JudgeCallResult,
     JudgeClient,
+    JudgeOutputValidationError,
     RawJudgeCompletion,
     create_judge_client,
 )
@@ -22,6 +23,7 @@ __all__ = [
     "GroundednessJudgeOutput",
     "JudgeCallResult",
     "JudgeClient",
+    "JudgeOutputValidationError",
     "OverconfidentClaim",
     "RawJudgeCompletion",
     "UnsupportedClaim",
