@@ -254,9 +254,8 @@ def _estimate_anthropic_cost_usd(
     *, model: str, prompt_tokens: int, completion_tokens: int
 ) -> float:
     input_rate, output_rate = _anthropic_price_per_million_tokens(model)
-    return (
-        (prompt_tokens / 1_000_000 * input_rate)
-        + (completion_tokens / 1_000_000 * output_rate)
+    return (prompt_tokens / 1_000_000 * input_rate) + (
+        completion_tokens / 1_000_000 * output_rate
     )
 
 

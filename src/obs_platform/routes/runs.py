@@ -109,10 +109,7 @@ async def list_runs(
     ).all()
 
     return RunListResponse(
-        items=[
-            _run_summary_response(run, run_failure)
-            for run, run_failure in rows
-        ],
+        items=[_run_summary_response(run, run_failure) for run, run_failure in rows],
         total=cast(int, total),
         limit=params.limit,
         offset=params.offset,
@@ -683,8 +680,7 @@ def _should_skip_unconfigured_judge(
     judge_settings: JudgeSettings,
 ) -> bool:
     return (
-        evaluator.type is EvaluatorType.LLM_BASED
-        and not judge_settings.is_configured
+        evaluator.type is EvaluatorType.LLM_BASED and not judge_settings.is_configured
     )
 
 

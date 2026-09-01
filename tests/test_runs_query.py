@@ -323,9 +323,10 @@ async def test_get_runs_filters_by_evaluation_failure_snapshot(
     )
 
     assert fail_response.status_code == 200
-    assert {
-        item["run_id"] for item in fail_response.json()["items"]
-    } == {"phase5-list-eval-policy", "phase5-list-eval-tool"}
+    assert {item["run_id"] for item in fail_response.json()["items"]} == {
+        "phase5-list-eval-policy",
+        "phase5-list-eval-tool",
+    }
     assert policy_response.status_code == 200
     assert [item["run_id"] for item in policy_response.json()["items"]] == [
         "phase5-list-eval-policy"
@@ -556,9 +557,7 @@ async def test_get_run_detail_includes_failure_and_latest_evaluation_summary(
         "updated_at": "2040-01-01T00:00:00Z",
     }
     assert len(body["evaluation_summary"]) == 2
-    by_name = {
-        item["evaluator_name"]: item for item in body["evaluation_summary"]
-    }
+    by_name = {item["evaluator_name"]: item for item in body["evaluation_summary"]}
     assert by_name["tool_execution"]["label"] == "pass"
     assert by_name["tool_execution"]["reason"] == "latest tool pass"
     assert by_name["evidence"]["label"] == "fail"

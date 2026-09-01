@@ -82,7 +82,4 @@ def _label_count(
     cases: Iterable[GroundednessCalibrationCase],
     expected_label: CalibrationLabel,
 ) -> int:
-    return sum(
-        bool(case.expected_label is expected_label)
-        for case in cases
-    )
+    return sum(bool(case.expected_label is expected_label) for case in cases)

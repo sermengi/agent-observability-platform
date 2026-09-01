@@ -97,9 +97,7 @@ async def test_uncertainty_prompt_uses_tool_results_and_excludes_llm_calls() -> 
         _run(
             tool_result={"asset_id": "pump-1", "fault_code": "FE-002"},
             llm_output={"internal_claim": "do-not-include-this-llm-content"},
-            final_result_output={
-                "answer": "Pump 1 may have reduced flow efficiency."
-            },
+            final_result_output={"answer": "Pump 1 may have reduced flow efficiency."},
         ),
         call_log,
     )
@@ -136,9 +134,7 @@ async def test_uncertainty_maps_overconfident_claims_to_findings() -> None:
     assert result.passed is False
     assert result.label == "fail"
     assert result.severity is None
-    assert [finding.code for finding in result.findings] == [
-        "overconfident_hypothesis"
-    ]
+    assert [finding.code for finding in result.findings] == ["overconfident_hypothesis"]
     assert result.findings[0].message == "The impeller is damaged."
     assert result.findings[0].data == {
         "evidence_gap": "No inspection or teardown was performed.",

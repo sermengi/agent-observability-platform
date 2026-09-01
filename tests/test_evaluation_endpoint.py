@@ -211,9 +211,7 @@ async def test_evaluate_uses_configured_judge_settings_for_llm_judges(
     ]
     assert all(item["execution_status"] == "completed" for item in judge_results)
     assert all(item["label"] == "pass" for item in judge_results)
-    assert [settings.model for settings in constructed_settings] == [
-        "configured-model"
-    ]
+    assert [settings.model for settings in constructed_settings] == ["configured-model"]
     assert await _judge_call_count(session, run_id) == 2
 
     await _delete_run(session, run_id)
@@ -281,9 +279,7 @@ async def test_evaluate_dispatches_deterministic_and_llm_based_evaluators(
         "completed",
         "completed",
     ]
-    assert body["evaluator_results"][1]["reason"] == (
-        f"{run_id} passed asynchronously"
-    )
+    assert body["evaluator_results"][1]["reason"] == (f"{run_id} passed asynchronously")
     assert await _evaluation_result_count(session, run_id) == 2
 
     await _delete_run(session, run_id)
@@ -361,9 +357,7 @@ async def test_evaluate_persists_all_retry_attempts_when_judge_validation_exhaus
     assert body["evaluator_results"][0]["execution_status"] == "failed"
     rows = list(
         await session.scalars(
-            select(JudgeCall)
-            .where(JudgeCall.run_id == run_id)
-            .order_by(JudgeCall.id)
+            select(JudgeCall).where(JudgeCall.run_id == run_id).order_by(JudgeCall.id)
         )
     )
     assert len(rows) == 3
@@ -476,8 +470,7 @@ async def test_evaluate_twice_appends_results_and_upserts_one_run_failure(
     assert len(run_failures) == 1
     assert run_failures[0].primary_category is not None
     assert (
-        second.json()["failure"]["primary_category"]
-        == run_failures[0].primary_category
+        second.json()["failure"]["primary_category"] == run_failures[0].primary_category
     )
 
     await _delete_run(session, run_id)

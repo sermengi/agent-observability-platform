@@ -227,7 +227,7 @@ async def test_phase_6_judge_calls_migration() -> None:
     assert '"completion_tokens"' in migration
     assert '"estimated_cost_usd"' in migration
     assert '"succeeded"' in migration
-    assert "sa.ForeignKeyConstraint([\"run_id\"], [\"agent_runs.run_id\"])" in migration
+    assert 'sa.ForeignKeyConstraint(["run_id"], ["agent_runs.run_id"])' in migration
     assert "evaluation_results" not in migration
 
 

@@ -790,9 +790,7 @@ async def test_failure_analytics_breakdowns_and_percentages(
 
     assert response.status_code == 200
     body = response.json()
-    by_failure_type = {
-        item["failure_type"]: item for item in body["by_failure_type"]
-    }
+    by_failure_type = {item["failure_type"]: item for item in body["by_failure_type"]}
     assert set(by_failure_type) == {
         "policy_violation",
         "tool_failure",
