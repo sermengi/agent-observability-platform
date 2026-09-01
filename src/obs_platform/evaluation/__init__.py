@@ -11,6 +11,7 @@ from obs_platform.evaluation.evaluators import (
 )
 from obs_platform.evaluation.persistence import (
     persist_evaluation_result,
+    persist_judge_call,
     persist_run_failure,
 )
 from obs_platform.evaluation.types import (
@@ -46,5 +47,6 @@ __all__ = [
     "ToolExecutionEvaluator",
     "TrajectoryEvaluator",
     "persist_evaluation_result",
+    "persist_judge_call",
     "persist_run_failure",
 ]

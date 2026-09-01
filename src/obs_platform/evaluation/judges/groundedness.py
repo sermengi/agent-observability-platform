@@ -59,8 +59,8 @@ class GroundednessJudge(Evaluator):
         judge_result = await self._judge_client.generate_structured(
             prompt=_groundedness_prompt(run),
             response_model=GroundednessJudgeOutput,
+            call_log=call_log,
         )
-        call_log.append(judge_result)
         output = judge_result.output
 
         return EvaluationResult(

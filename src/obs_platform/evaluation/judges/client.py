@@ -38,7 +38,10 @@ class JudgeClient(ABC):
         self.model = model
 
     async def generate_structured[T: BaseModel](
-        self, prompt: str, response_model: type[T]
+        self,
+        prompt: str,
+        response_model: type[T],
+        call_log: list[JudgeCallResult[Any]] | None = None,
     ) -> JudgeCallResult[T]:
         started_at = monotonic()
         raw_completion = await self._raw_complete(
@@ -47,7 +50,7 @@ class JudgeClient(ABC):
         )
         latency_ms = round((monotonic() - started_at) * 1000)
 
-        return JudgeCallResult(
+        result: JudgeCallResult[T] = JudgeCallResult(
             output=response_model.model_validate(raw_completion.output),
             model=self.model,
             provider=self.provider,
@@ -56,6 +59,9 @@ class JudgeClient(ABC):
             completion_tokens=raw_completion.completion_tokens,
             estimated_cost_usd=raw_completion.estimated_cost_usd,
         )
+        if call_log is not None:
+            call_log.append(result)
+        return result
 
     @abstractmethod
     async def _raw_complete(

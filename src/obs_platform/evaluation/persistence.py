@@ -1,12 +1,15 @@
 from datetime import UTC, datetime
+from typing import Any
 
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from obs_platform.db.models import EvaluationResult as EvaluationResultRecord
+from obs_platform.db.models import JudgeCall as JudgeCallRecord
 from obs_platform.db.models import RunFailure as RunFailureRecord
 from obs_platform.evaluation.base import Evaluator
 from obs_platform.evaluation.classifier import FailureClassifier, RunFailureResult
+from obs_platform.evaluation.judges.client import JudgeCallResult
 from obs_platform.evaluation.types import EvaluationResult, EvaluatorExecutionStatus
 
 
@@ -84,4 +87,31 @@ async def persist_run_failure(
     record = await session.get(RunFailureRecord, run_id, populate_existing=True)
     if record is None:
         raise RuntimeError("run failure upsert did not return a record")
+    return record
+
+
+async def persist_judge_call(
+    session: AsyncSession,
+    run_id: str,
+    evaluator_name: str,
+    evaluator_version: str,
+    call: JudgeCallResult[Any],
+    succeeded: bool,
+) -> JudgeCallRecord:
+    record = JudgeCallRecord(
+        run_id=run_id,
+        evaluator_name=evaluator_name,
+        evaluator_version=evaluator_version,
+        model=call.model,
+        provider=call.provider,
+        latency_ms=call.latency_ms,
+        prompt_tokens=call.prompt_tokens,
+        completion_tokens=call.completion_tokens,
+        estimated_cost_usd=call.estimated_cost_usd,
+        succeeded=succeeded,
+        created_at=datetime.now(UTC),
+    )
+    session.add(record)
+    await session.commit()
+    await session.refresh(record)
     return record

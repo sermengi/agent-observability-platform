@@ -102,6 +102,7 @@ async def test_groundedness_prompt_uses_tool_results_and_excludes_llm_calls() ->
     assert result.score == 0.2
     assert result.severity is None
     assert len(call_log) == 1
+    assert call_log[0].output.reason == "judge passed despite low informational score"
     prompt = client.prompts[0]
     assert "temperature_c" in prompt
     assert "Pump 1 temperature is 80 C." in prompt

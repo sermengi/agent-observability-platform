@@ -3,6 +3,7 @@ from typing import Any, ClassVar, cast
 
 import pytest
 from httpx import ASGITransport, AsyncClient
+from pydantic import BaseModel
 from sqlalchemy import delete, func, insert, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
@@ -12,6 +13,7 @@ from obs_platform.database import create_engine
 from obs_platform.db.models import (
     AgentRun,
     EvaluationResult,
+    JudgeCall,
     LLMCall,
     RunFailure,
     Span,
@@ -19,6 +21,7 @@ from obs_platform.db.models import (
 from obs_platform.db.models import ToolCall as ToolCallRecord
 from obs_platform.evaluation.base import Evaluator
 from obs_platform.evaluation.classifier import FailureClassifier, RunFailureResult
+from obs_platform.evaluation.judges.client import JudgeCallResult
 from obs_platform.evaluation.types import EvaluationResult as EvaluationOutcome
 from obs_platform.evaluation.types import (
     EvaluationRunView,
@@ -151,6 +154,113 @@ async def test_evaluate_dispatches_deterministic_and_llm_based_evaluators(
         f"{run_id} passed asynchronously"
     )
     assert await _evaluation_result_count(session, run_id) == 2
+
+    await _delete_run(session, run_id)
+
+
+async def test_evaluate_persists_judge_call_log_entries_for_llm_based_evaluator(
+    session: AsyncSession,
+    evaluation_client: AsyncClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    run_id = "phase6-evaluate-persists-judge-calls"
+    await _create_run(session, "healthy_success", run_id)
+    monkeypatch.setattr(runs, "DETERMINISTIC_EVALUATORS", [_AsyncLoggingEvaluator()])
+
+    response = await evaluation_client.post(f"/v1/runs/{run_id}/evaluate")
+
+    assert response.status_code == 200
+    rows = list(
+        await session.scalars(select(JudgeCall).where(JudgeCall.run_id == run_id))
+    )
+    assert len(rows) == 1
+    assert rows[0].evaluator_name == "async_logging_judge"
+    assert rows[0].evaluator_version == "1.0.0"
+    assert rows[0].model == "judge-model"
+    assert rows[0].provider == "judge-provider"
+    assert rows[0].latency_ms == 44
+    assert rows[0].prompt_tokens == 12
+    assert rows[0].completion_tokens == 6
+    assert rows[0].estimated_cost_usd == 0.0009
+    assert rows[0].succeeded is True
+
+    await _delete_run(session, run_id)
+
+
+async def test_evaluate_persists_judge_call_log_entries_when_evaluator_raises(
+    session: AsyncSession,
+    evaluation_client: AsyncClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    run_id = "phase6-evaluate-persists-failed-judge-calls"
+    await _create_run(session, "healthy_success", run_id)
+    monkeypatch.setattr(runs, "DETERMINISTIC_EVALUATORS", [_AsyncExplodingEvaluator()])
+
+    response = await evaluation_client.post(f"/v1/runs/{run_id}/evaluate")
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["evaluator_results"][0]["execution_status"] == "failed"
+    rows = list(
+        await session.scalars(select(JudgeCall).where(JudgeCall.run_id == run_id))
+    )
+    assert len(rows) == 1
+    assert rows[0].evaluator_name == "async_exploding_judge"
+    assert rows[0].succeeded is False
+
+    await _delete_run(session, run_id)
+
+
+async def test_judge_call_persistence_failure_leaves_evaluation_and_failure_committed(
+    session: AsyncSession,
+    evaluation_client: AsyncClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    run_id = "phase6-judge-call-persist-failure"
+    await _create_run(session, "healthy_success", run_id)
+    monkeypatch.setattr(runs, "DETERMINISTIC_EVALUATORS", [_AsyncLoggingEvaluator()])
+
+    async def fail_persist_judge_call(*args: object, **kwargs: object) -> None:
+        raise RuntimeError("forced judge call persistence failure")
+
+    monkeypatch.setattr(runs, "persist_judge_call", fail_persist_judge_call)
+
+    response = await evaluation_client.post(f"/v1/runs/{run_id}/evaluate")
+
+    assert response.status_code == 500
+    assert await _evaluation_result_count(session, run_id) == 1
+    assert await session.get(RunFailure, run_id) is not None
+    rows = list(
+        await session.scalars(select(JudgeCall).where(JudgeCall.run_id == run_id))
+    )
+    assert rows == []
+
+    await _delete_run(session, run_id)
+
+
+async def test_run_failure_persistence_failure_leaves_judge_calls_committed(
+    session: AsyncSession,
+    evaluation_client: AsyncClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    run_id = "phase6-run-failure-persist-failure-with-judge-call"
+    await _create_run(session, "healthy_success", run_id)
+    monkeypatch.setattr(runs, "DETERMINISTIC_EVALUATORS", [_AsyncLoggingEvaluator()])
+
+    async def fail_persist_run_failure(*args: object, **kwargs: object) -> None:
+        raise RuntimeError("forced run failure persistence failure")
+
+    monkeypatch.setattr(runs, "persist_run_failure", fail_persist_run_failure)
+
+    response = await evaluation_client.post(f"/v1/runs/{run_id}/evaluate")
+
+    assert response.status_code == 500
+    assert await _evaluation_result_count(session, run_id) == 1
+    rows = list(
+        await session.scalars(select(JudgeCall).where(JudgeCall.run_id == run_id))
+    )
+    assert len(rows) == 1
+    assert await session.get(RunFailure, run_id) is None
 
     await _delete_run(session, run_id)
 
@@ -501,6 +611,59 @@ class _AsyncEvaluator(Evaluator):
         )
 
 
+class _JudgeOutput(BaseModel):
+    verdict: str
+
+
+class _AsyncLoggingEvaluator(Evaluator):
+    name: ClassVar[str] = "async_logging_judge"
+    version: ClassVar[str] = "1.0.0"
+    type: ClassVar[EvaluatorType] = EvaluatorType.LLM_BASED
+
+    def evaluate(self, run: EvaluationRunView) -> EvaluationOutcome:
+        raise AssertionError("LLM-based evaluator should use evaluate_async")
+
+    async def evaluate_async(
+        self, run: EvaluationRunView, call_log: list[Any]
+    ) -> EvaluationOutcome:
+        call_log.append(_judge_call_result())
+        return EvaluationOutcome(
+            passed=True,
+            score=1.0,
+            label="pass",
+            severity=None,
+            reason=f"{run.run_id} passed asynchronously",
+            findings=[],
+        )
+
+
+class _AsyncExplodingEvaluator(Evaluator):
+    name: ClassVar[str] = "async_exploding_judge"
+    version: ClassVar[str] = "1.0.0"
+    type: ClassVar[EvaluatorType] = EvaluatorType.LLM_BASED
+
+    def evaluate(self, run: EvaluationRunView) -> EvaluationOutcome:
+        raise AssertionError("LLM-based evaluator should use evaluate_async")
+
+    async def evaluate_async(
+        self, run: EvaluationRunView, call_log: list[Any]
+    ) -> EvaluationOutcome:
+        call_log.append(_judge_call_result())
+        raise RuntimeError("forced async evaluator failure")
+
+
+def _judge_call_result() -> JudgeCallResult[_JudgeOutput]:
+    return JudgeCallResult(
+        output=_JudgeOutput(verdict="pass"),
+        model="judge-model",
+        provider="judge-provider",
+        latency_ms=44,
+        prompt_tokens=12,
+        completion_tokens=6,
+        estimated_cost_usd=0.0009,
+    )
+
+
 async def _create_run(session: AsyncSession, fixture_name: str, run_id: str) -> None:
     await _delete_run(session, run_id)
     event = load_fixture(fixture_name)
@@ -511,7 +674,15 @@ async def _create_run(session: AsyncSession, fixture_name: str, run_id: str) -> 
 async def _delete_run(session: AsyncSession, run_id: str) -> None:
     for model in cast(
         tuple[Any, ...],
-        (RunFailure, EvaluationResult, LLMCall, ToolCallRecord, Span, AgentRun),
+        (
+            RunFailure,
+            EvaluationResult,
+            JudgeCall,
+            LLMCall,
+            ToolCallRecord,
+            Span,
+            AgentRun,
+        ),
     ):
         await session.execute(delete(model).where(model.run_id == run_id))
     await session.commit()

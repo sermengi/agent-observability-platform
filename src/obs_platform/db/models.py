@@ -288,6 +288,32 @@ class EvaluationResult(Base):
     )
 
 
+class JudgeCall(Base):
+    __tablename__ = "judge_calls"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    run_id: Mapped[str] = mapped_column(
+        ForeignKey("agent_runs.run_id"),
+        nullable=False,
+    )
+    evaluator_name: Mapped[str] = mapped_column(Text, nullable=False)
+    evaluator_version: Mapped[str] = mapped_column(Text, nullable=False)
+    model: Mapped[str] = mapped_column(Text, nullable=False)
+    provider: Mapped[str] = mapped_column(Text, nullable=False)
+    latency_ms: Mapped[int] = mapped_column(Integer, nullable=False)
+    prompt_tokens: Mapped[int] = mapped_column(Integer, nullable=False)
+    completion_tokens: Mapped[int] = mapped_column(Integer, nullable=False)
+    estimated_cost_usd: Mapped[float] = mapped_column(
+        DOUBLE_PRECISION,
+        nullable=False,
+    )
+    succeeded: Mapped[bool] = mapped_column(nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+    )
+
+
 class RunFailure(Base):
     __tablename__ = "run_failures"
     __table_args__ = (

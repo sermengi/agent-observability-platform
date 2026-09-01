@@ -3,19 +3,22 @@ from collections.abc import AsyncIterator
 from typing import Any, cast
 
 import pytest
+from pydantic import BaseModel
 from sqlalchemy import delete, func, insert, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from obs_platform.config import DatabaseOnlySettings
 from obs_platform.database import create_engine
-from obs_platform.db.models import AgentRun, LLMCall, Span, ToolCall
+from obs_platform.db.models import AgentRun, JudgeCall, LLMCall, Span, ToolCall
 from obs_platform.db.models import EvaluationResult as EvaluationResultRecord
 from obs_platform.db.models import RunFailure as RunFailureRecord
 from obs_platform.evaluation.base import Evaluator
 from obs_platform.evaluation.classifier import FailureClassifier, RunFailureResult
+from obs_platform.evaluation.judges.client import JudgeCallResult
 from obs_platform.evaluation.persistence import (
     persist_evaluation_result,
+    persist_judge_call,
     persist_run_failure,
 )
 from obs_platform.evaluation.types import (
@@ -319,6 +322,67 @@ async def test_persist_evaluation_result_uses_plain_async_session(
     await _delete_run(session, run_id)
 
 
+async def test_persist_judge_call_inserts_call_accounting_separately_from_llm_calls(
+    session: AsyncSession,
+) -> None:
+    run_id = "phase6-judge-call-persistence"
+    await _create_run(session, run_id)
+
+    record = await persist_judge_call(
+        session,
+        run_id,
+        evaluator_name="groundedness",
+        evaluator_version="1.0.0",
+        call=_judge_call_result(),
+        succeeded=True,
+    )
+
+    assert record.id is not None
+    assert record.run_id == run_id
+    assert record.evaluator_name == "groundedness"
+    assert record.evaluator_version == "1.0.0"
+    assert record.provider == "mock-provider"
+    assert record.model == "mock-model"
+    assert record.latency_ms == 123
+    assert record.prompt_tokens == 17
+    assert record.completion_tokens == 5
+    assert record.estimated_cost_usd == 0.00042
+    assert record.succeeded is True
+    assert await _judge_call_count(session, run_id) == 1
+    assert await _llm_call_count(session, run_id) == 2
+
+    await _delete_run(session, run_id)
+
+
+async def test_persist_judge_call_is_insert_only(
+    session: AsyncSession,
+) -> None:
+    run_id = "phase6-judge-call-insert-only"
+    await _create_run(session, run_id)
+
+    first = await persist_judge_call(
+        session,
+        run_id,
+        evaluator_name="groundedness",
+        evaluator_version="1.0.0",
+        call=_judge_call_result(),
+        succeeded=False,
+    )
+    second = await persist_judge_call(
+        session,
+        run_id,
+        evaluator_name="groundedness",
+        evaluator_version="1.0.0",
+        call=_judge_call_result(),
+        succeeded=True,
+    )
+
+    assert first.id != second.id
+    assert await _judge_call_count(session, run_id) == 2
+
+    await _delete_run(session, run_id)
+
+
 class _Evaluator(Evaluator):
     name = "test"
     version = "1.0.0"
@@ -359,6 +423,22 @@ def _result(
     )
 
 
+class _JudgeOutput(BaseModel):
+    verdict: str
+
+
+def _judge_call_result() -> JudgeCallResult[_JudgeOutput]:
+    return JudgeCallResult(
+        output=_JudgeOutput(verdict="pass"),
+        model="mock-model",
+        provider="mock-provider",
+        latency_ms=123,
+        prompt_tokens=17,
+        completion_tokens=5,
+        estimated_cost_usd=0.00042,
+    )
+
+
 async def _create_run(session: AsyncSession, run_id: str) -> None:
     await _delete_run(session, run_id)
     event = load_fixture("healthy_success")
@@ -369,7 +449,15 @@ async def _create_run(session: AsyncSession, run_id: str) -> None:
 async def _delete_run(session: AsyncSession, run_id: str) -> None:
     for model in cast(
         tuple[Any, ...],
-        (RunFailureRecord, EvaluationResultRecord, LLMCall, ToolCall, Span, AgentRun),
+        (
+            RunFailureRecord,
+            EvaluationResultRecord,
+            JudgeCall,
+            LLMCall,
+            ToolCall,
+            Span,
+            AgentRun,
+        ),
     ):
         await session.execute(delete(model).where(model.run_id == run_id))
     await session.commit()
@@ -380,5 +468,19 @@ async def _evaluation_result_count(session: AsyncSession, run_id: str) -> int:
         select(func.count())
         .select_from(EvaluationResultRecord)
         .where(EvaluationResultRecord.run_id == run_id)
+    )
+    return int(count or 0)
+
+
+async def _judge_call_count(session: AsyncSession, run_id: str) -> int:
+    count = await session.scalar(
+        select(func.count()).select_from(JudgeCall).where(JudgeCall.run_id == run_id)
+    )
+    return int(count or 0)
+
+
+async def _llm_call_count(session: AsyncSession, run_id: str) -> int:
+    count = await session.scalar(
+        select(func.count()).select_from(LLMCall).where(LLMCall.run_id == run_id)
     )
     return int(count or 0)

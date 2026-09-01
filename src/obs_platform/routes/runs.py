@@ -1,5 +1,5 @@
 from datetime import UTC, datetime
-from typing import Annotated, cast
+from typing import Annotated, Any, cast
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, Field
@@ -30,8 +30,10 @@ from obs_platform.evaluation.classifier import (
     EvaluatorOutcome,
     FailureClassifier,
 )
+from obs_platform.evaluation.judges.client import JudgeCallResult
 from obs_platform.evaluation.persistence import (
     persist_evaluation_result,
+    persist_judge_call,
     persist_run_failure,
 )
 from obs_platform.evaluation.registry import DETERMINISTIC_EVALUATORS
@@ -139,8 +141,9 @@ async def evaluate_run(
 
     evaluated_at = datetime.now(UTC)
     outcomes: list[EvaluatorOutcome] = []
+    judge_persistence_errors: list[Exception] = []
     for evaluator in DETERMINISTIC_EVALUATORS:
-        call_log: list[object] = []
+        call_log: list[JudgeCallResult[Any]] = []
         try:
             if evaluator.type is EvaluatorType.DETERMINISTIC:
                 result = evaluator.evaluate(run)
@@ -162,10 +165,25 @@ async def evaluate_run(
                 result=result,
             )
         )
+        for call in call_log:
+            try:
+                await persist_judge_call(
+                    session,
+                    run_id,
+                    evaluator_name=evaluator.name,
+                    evaluator_version=evaluator.version,
+                    call=call,
+                    succeeded=status is EvaluatorExecutionStatus.COMPLETED,
+                )
+            except Exception as exc:
+                await session.rollback()
+                judge_persistence_errors.append(exc)
 
     classifier = FailureClassifier()
     classification = classifier.classify(outcomes)
     await persist_run_failure(session, run_id, classification)
+    if judge_persistence_errors:
+        raise judge_persistence_errors[0]
 
     return EvaluationTriggerResponse(
         run_id=run_id,

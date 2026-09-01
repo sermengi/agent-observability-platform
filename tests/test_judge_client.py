@@ -8,6 +8,7 @@ from pydantic import BaseModel
 from obs_platform.config import JudgeSettings, Settings
 from obs_platform.evaluation.judges.client import (
     AnthropicJudgeClient,
+    JudgeCallResult,
     JudgeClient,
     RawJudgeCompletion,
     create_judge_client,
@@ -47,10 +48,12 @@ async def test_judge_client_base_owns_generate_structured_template_method() -> N
 
 async def test_generate_structured_returns_output_and_call_metadata() -> None:
     client = MockJudgeClient()
+    call_log: list[JudgeCallResult[Any]] = []
 
     result = await client.generate_structured(
         prompt="Judge this answer.",
         response_model=ExampleJudgeOutput,
+        call_log=call_log,
     )
 
     assert result.output == ExampleJudgeOutput(verdict="pass")
@@ -60,6 +63,7 @@ async def test_generate_structured_returns_output_and_call_metadata() -> None:
     assert result.prompt_tokens == 17
     assert result.completion_tokens == 5
     assert result.estimated_cost_usd == 0.00042
+    assert call_log == [result]
     assert client.prompts == ["Judge this answer."]
     assert client.schemas == [ExampleJudgeOutput.model_json_schema()]
 

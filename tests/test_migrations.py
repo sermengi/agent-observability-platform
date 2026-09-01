@@ -31,7 +31,7 @@ async def test_initial_migration_is_empty_domain_bootstrap() -> None:
         "migrations/versions/20260825_0001_initial_empty_bootstrap.py"
     )
 
-    assert len(migration_files) == 4
+    assert len(migration_files) == 5
     migration = initial_migration.read_text()
     assert "op.create_table" not in migration
     assert "op.drop_table" not in migration
@@ -44,8 +44,16 @@ async def test_phase_2_migration_creates_core_tables_only() -> None:
     ).read_text()
 
     assert 'down_revision: str | Sequence[str] | None = "20260825_0001"' in migration
-    for table_name in Base.metadata.tables:
+    for table_name in {
+        "agent_runs",
+        "spans",
+        "tool_calls",
+        "llm_calls",
+        "evaluation_results",
+        "run_failures",
+    }:
         assert f'"{table_name}"' in migration
+    assert '"judge_calls"' not in migration
     assert '"regression_runs"' not in migration
     assert migration.count("op.create_table(") == 6
     assert migration.count("op.drop_table(") == 6
@@ -106,6 +114,7 @@ async def test_database_metadata_defines_phase_2_core_tables() -> None:
         "llm_calls",
         "evaluation_results",
         "run_failures",
+        "judge_calls",
     }
     assert "hitl_state_transitions" not in Base.metadata.tables
     assert "human_approvals" not in Base.metadata.tables
@@ -202,12 +211,56 @@ async def test_phase_5_evaluation_status_snapshot_migration() -> None:
     assert "ck_run_failures_overall_status" in migration
 
 
+async def test_phase_6_judge_calls_migration() -> None:
+    migration = Path(
+        "migrations/versions/20260901_0005_create_judge_calls.py"
+    ).read_text()
+
+    assert 'down_revision: str | Sequence[str] | None = "20260830_0004"' in migration
+    assert '"judge_calls"' in migration
+    assert '"evaluator_name"' in migration
+    assert '"evaluator_version"' in migration
+    assert '"provider"' in migration
+    assert '"model"' in migration
+    assert '"latency_ms"' in migration
+    assert '"prompt_tokens"' in migration
+    assert '"completion_tokens"' in migration
+    assert '"estimated_cost_usd"' in migration
+    assert '"succeeded"' in migration
+    assert "sa.ForeignKeyConstraint([\"run_id\"], [\"agent_runs.run_id\"])" in migration
+    assert "evaluation_results" not in migration
+
+
+async def test_judge_calls_table_tracks_evaluation_cost_separately() -> None:
+    table = cast(Table, models.JudgeCall.__table__)
+
+    assert [column.name for column in table.primary_key] == ["id"]
+    assert table.c.id.autoincrement is True
+    assert [column.name for column in table.c] == [
+        "id",
+        "run_id",
+        "evaluator_name",
+        "evaluator_version",
+        "model",
+        "provider",
+        "latency_ms",
+        "prompt_tokens",
+        "completion_tokens",
+        "estimated_cost_usd",
+        "succeeded",
+        "created_at",
+    ]
+    assert _foreign_key_constraints_for(table, ["run_id"])
+    assert not _foreign_key_constraints_for(table, ["evaluator_name"])
+
+
 async def test_phase_2_jsonb_array_and_double_precision_columns() -> None:
     agent_runs = cast(Table, models.AgentRun.__table__)
     spans = cast(Table, models.Span.__table__)
     tool_calls = cast(Table, models.ToolCall.__table__)
     llm_calls = cast(Table, models.LLMCall.__table__)
     evaluation_results = cast(Table, models.EvaluationResult.__table__)
+    judge_calls = cast(Table, models.JudgeCall.__table__)
 
     for column in [
         agent_runs.c.raw_input,
@@ -226,6 +279,7 @@ async def test_phase_2_jsonb_array_and_double_precision_columns() -> None:
 
     assert isinstance(agent_runs.c.final_result_source_references.type, ARRAY)
     assert isinstance(llm_calls.c.estimated_cost_usd.type, DOUBLE_PRECISION)
+    assert isinstance(judge_calls.c.estimated_cost_usd.type, DOUBLE_PRECISION)
     assert isinstance(
         agent_runs.c.usage_total_estimated_cost_usd.type,
         DOUBLE_PRECISION,
@@ -342,6 +396,20 @@ async def test_phase_2_relational_policy_columns_are_not_jsonb() -> None:
             "classifier_version",
             "updated_at",
         ],
+        "judge_calls": [
+            "id",
+            "run_id",
+            "evaluator_name",
+            "evaluator_version",
+            "model",
+            "provider",
+            "latency_ms",
+            "prompt_tokens",
+            "completion_tokens",
+            "estimated_cost_usd",
+            "succeeded",
+            "created_at",
+        ],
     }
 
     for table_name, column_names in relational_columns.items():
@@ -370,6 +438,7 @@ async def test_phase_2_metadata_defines_minimal_indexes() -> None:
     }
     assert _index_columns(cast(Table, models.EvaluationResult.__table__)) == {}
     assert _index_columns(cast(Table, models.RunFailure.__table__)) == {}
+    assert _index_columns(cast(Table, models.JudgeCall.__table__)) == {}
 
 
 def _has_unique_constraint(table: Table, column_names: list[str]) -> bool:
