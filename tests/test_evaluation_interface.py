@@ -186,6 +186,14 @@ def test_evaluator_interface_uses_class_metadata_and_sync_evaluate() -> None:
 def test_registry_is_plain_static_list() -> None:
     assert isinstance(DETERMINISTIC_EVALUATORS, list)
     assert not hasattr(DETERMINISTIC_EVALUATORS, "register")
+    assert [evaluator.name for evaluator in DETERMINISTIC_EVALUATORS][-2:] == [
+        "groundedness",
+        "uncertainty",
+    ]
+    assert [evaluator.type for evaluator in DETERMINISTIC_EVALUATORS][-2:] == [
+        EvaluatorType.LLM_BASED,
+        EvaluatorType.LLM_BASED,
+    ]
 
 
 def test_evaluator_type_is_not_persisted_on_evaluation_results() -> None:

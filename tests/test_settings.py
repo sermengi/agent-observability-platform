@@ -3,7 +3,12 @@ from pathlib import Path
 import pytest
 from pydantic import ValidationError
 
-from obs_platform.config import APISettings, DatabaseSettings, Settings
+from obs_platform.config import (
+    APISettings,
+    DatabaseSettings,
+    JudgeOnlySettings,
+    Settings,
+)
 
 DB_ENV = {
     "DB__HOST": "localhost",
@@ -81,3 +86,14 @@ async def test_dotenv_is_ignored() -> None:
         ["git", "ls-files", ".env"], capture_output=True, text=True, check=True
     ).stdout
     assert tracked.strip() == ""
+
+
+async def test_judge_settings_report_availability_from_api_key() -> None:
+    unconfigured = JudgeOnlySettings(_env_file=None).judge
+    configured = JudgeOnlySettings(
+        _env_file=None,
+        judge={"anthropic_api_key": "test-key", "model": "judge-model"},
+    ).judge
+
+    assert unconfigured.is_configured is False
+    assert configured.is_configured is True

@@ -36,9 +36,13 @@ class GroundednessJudge(Evaluator):
     name = "groundedness"
     version = "1.0.0"
     type = EvaluatorType.LLM_BASED
+    requires_judge_credentials = True
 
-    def __init__(self, judge_client: JudgeClient) -> None:
+    def __init__(self, judge_client: JudgeClient | None = None) -> None:
         self._judge_client = judge_client
+
+    def with_judge_client(self, judge_client: JudgeClient) -> "GroundednessJudge":
+        return GroundednessJudge(judge_client)
 
     def evaluate(self, run: EvaluationRunView) -> EvaluationResult:
         raise NotImplementedError("GroundednessJudge must be evaluated asynchronously")
@@ -50,6 +54,9 @@ class GroundednessJudge(Evaluator):
     ) -> EvaluationResult:
         if (not_applicable := judge_not_applicable_result(run)) is not None:
             return not_applicable
+
+        if self._judge_client is None:
+            raise RuntimeError("groundedness judge client is not configured")
 
         judge_result = await self._judge_client.generate_structured(
             prompt=_groundedness_prompt(run),

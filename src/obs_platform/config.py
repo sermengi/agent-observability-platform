@@ -31,6 +31,10 @@ class JudgeSettings(BaseModel):
     anthropic_api_key: str | None = None
     max_tokens: int = Field(default=1024, gt=0)
 
+    @property
+    def is_configured(self) -> bool:
+        return bool(self.model and self.anthropic_api_key)
+
 
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(
@@ -54,3 +58,14 @@ class DatabaseOnlySettings(BaseSettings):
     )
 
     db: DatabaseSettings
+
+
+class JudgeOnlySettings(BaseSettings):
+    model_config = SettingsConfigDict(
+        env_file=".env",
+        env_nested_delimiter="__",
+        case_sensitive=False,
+        extra="ignore",
+    )
+
+    judge: JudgeSettings = Field(default_factory=JudgeSettings)

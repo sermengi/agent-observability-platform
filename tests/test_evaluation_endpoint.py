@@ -8,7 +8,7 @@ from sqlalchemy import delete, func, insert, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-from obs_platform.config import DatabaseOnlySettings
+from obs_platform.config import DatabaseOnlySettings, JudgeSettings
 from obs_platform.database import create_engine
 from obs_platform.db.models import (
     AgentRun,
@@ -87,8 +87,141 @@ async def test_evaluate_runs_all_deterministic_evaluators_for_awaiting_approval_
         "trajectory",
         "policy",
         "evidence",
+        "groundedness",
+        "uncertainty",
     }
-    assert await _evaluation_result_count(session, run_id) == 5
+    assert await _evaluation_result_count(session, run_id) == 7
+
+    await _delete_run(session, run_id)
+
+
+async def test_evaluate_skips_llm_judges_when_judge_credentials_are_absent(
+    session: AsyncSession,
+    evaluation_client: AsyncClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    run_id = "phase6-evaluate-skips-unconfigured-judges"
+    await _create_run(session, "healthy_success", run_id)
+
+    def fail_create_judge_client(settings: JudgeSettings) -> JudgeClient:
+        raise AssertionError("judge client should not be constructed")
+
+    monkeypatch.setattr(runs, "create_judge_client", fail_create_judge_client)
+
+    response = await evaluation_client.post(f"/v1/runs/{run_id}/evaluate")
+
+    assert response.status_code == 200
+    body = response.json()
+    judge_results = [
+        item
+        for item in body["evaluator_results"]
+        if item["evaluator_name"] in {"groundedness", "uncertainty"}
+    ]
+    assert [item["evaluator_name"] for item in judge_results] == [
+        "groundedness",
+        "uncertainty",
+    ]
+    assert all(item["execution_status"] == "skipped" for item in judge_results)
+    for item in judge_results:
+        assert item["passed"] is None
+        assert item["score"] is None
+        assert item["label"] is None
+        assert item["severity"] is None
+        assert item["reason"] == "judge credentials not configured"
+        assert item["findings"] == [
+            {
+                "code": "judge_unavailable",
+                "message": "judge credentials not configured",
+                "data": {},
+            }
+        ]
+    assert await _judge_call_count(session, run_id) == 0
+    persisted_judge_results = list(
+        await session.scalars(
+            select(EvaluationResult)
+            .where(EvaluationResult.run_id == run_id)
+            .where(EvaluationResult.evaluator_name.in_(("groundedness", "uncertainty")))
+            .order_by(EvaluationResult.id)
+        )
+    )
+    assert [row.evaluator_name for row in persisted_judge_results] == [
+        "groundedness",
+        "uncertainty",
+    ]
+    assert all(row.status == "skipped" for row in persisted_judge_results)
+    assert all(row.passed is None for row in persisted_judge_results)
+    assert all(row.score is None for row in persisted_judge_results)
+    assert all(row.label is None for row in persisted_judge_results)
+    assert all(row.severity is None for row in persisted_judge_results)
+
+    await _delete_run(session, run_id)
+
+
+async def test_skipped_llm_judges_do_not_affect_clean_pass_classification(
+    session: AsyncSession,
+    evaluation_client: AsyncClient,
+) -> None:
+    run_id = "phase6-skipped-judges-clean-pass"
+    await _create_run(session, "healthy_success", run_id)
+
+    response = await evaluation_client.post(f"/v1/runs/{run_id}/evaluate")
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["overall_status"] == "pass"
+    assert body["failure"] == {
+        "primary_category": None,
+        "secondary_category": None,
+        "max_severity": None,
+    }
+    run_failure = await session.get(RunFailure, run_id)
+    assert run_failure is not None
+    assert run_failure.overall_status == "pass"
+    assert run_failure.primary_category is None
+    assert run_failure.secondary_category is None
+    assert run_failure.max_severity is None
+
+    await _delete_run(session, run_id)
+
+
+async def test_evaluate_uses_configured_judge_settings_for_llm_judges(
+    session: AsyncSession,
+    evaluation_client: AsyncClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    run_id = "phase6-evaluate-configured-judge"
+    await _create_run(session, "healthy_success", run_id)
+    constructed_settings: list[JudgeSettings] = []
+
+    def fake_create_judge_client(settings: JudgeSettings) -> JudgeClient:
+        constructed_settings.append(settings)
+        return _PassingJudgeClient()
+
+    monkeypatch.setattr(runs, "create_judge_client", fake_create_judge_client)
+    monkeypatch.setattr(
+        runs,
+        "get_judge_settings",
+        lambda: JudgeSettings(
+            anthropic_api_key="test-key",
+            model="configured-model",
+        ),
+    )
+
+    response = await evaluation_client.post(f"/v1/runs/{run_id}/evaluate")
+
+    assert response.status_code == 200
+    body = response.json()
+    judge_results = [
+        item
+        for item in body["evaluator_results"]
+        if item["evaluator_name"] in {"groundedness", "uncertainty"}
+    ]
+    assert all(item["execution_status"] == "completed" for item in judge_results)
+    assert all(item["label"] == "pass" for item in judge_results)
+    assert [settings.model for settings in constructed_settings] == [
+        "configured-model"
+    ]
+    assert await _judge_call_count(session, run_id) == 2
 
     await _delete_run(session, run_id)
 
@@ -337,7 +470,7 @@ async def test_evaluate_twice_appends_results_and_upserts_one_run_failure(
 
     assert first.status_code == 200
     assert second.status_code == 200
-    assert await _evaluation_result_count(session, run_id) == 10
+    assert await _evaluation_result_count(session, run_id) == 14
     run_failures = list(
         await session.scalars(select(RunFailure).where(RunFailure.run_id == run_id))
     )
@@ -706,6 +839,35 @@ class _AlwaysInvalidJudgeClient(JudgeClient):
         )
 
 
+class _PassingJudgeClient(JudgeClient):
+    def __init__(self) -> None:
+        super().__init__(provider="judge-provider", model="judge-model")
+
+    async def _raw_complete(
+        self, prompt: str, schema: dict[str, Any]
+    ) -> RawJudgeCompletion:
+        if "overconfident" in prompt:
+            output = {
+                "passed": True,
+                "score": 1.0,
+                "reason": "appropriately hedged",
+                "overconfident_claims": [],
+            }
+        else:
+            output = {
+                "passed": True,
+                "score": 1.0,
+                "reason": "grounded",
+                "unsupported_claims": [],
+            }
+        return RawJudgeCompletion(
+            output=output,
+            prompt_tokens=12,
+            completion_tokens=6,
+            estimated_cost_usd=0.0009,
+        )
+
+
 class _RetryExhaustingEvaluator(Evaluator):
     name: ClassVar[str] = "retry_exhausting_judge"
     version: ClassVar[str] = "1.0.0"
@@ -769,5 +931,12 @@ async def _evaluation_result_count(session: AsyncSession, run_id: str) -> int:
         select(func.count())
         .select_from(EvaluationResult)
         .where(EvaluationResult.run_id == run_id)
+    )
+    return int(count or 0)
+
+
+async def _judge_call_count(session: AsyncSession, run_id: str) -> int:
+    count = await session.scalar(
+        select(func.count()).select_from(JudgeCall).where(JudgeCall.run_id == run_id)
     )
     return int(count or 0)

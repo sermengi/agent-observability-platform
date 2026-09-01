@@ -24,13 +24,19 @@ from obs_platform.api.v1.schemas import (
     ToolCallResponse,
     UsageResponse,
 )
+from obs_platform.config import JudgeOnlySettings, JudgeSettings
 from obs_platform.db.models import AgentRun, LLMCall, RunFailure, Span, ToolCall
 from obs_platform.db.models import EvaluationResult as EvaluationResultRecord
+from obs_platform.evaluation.base import Evaluator
 from obs_platform.evaluation.classifier import (
     EvaluatorOutcome,
     FailureClassifier,
 )
-from obs_platform.evaluation.judges.client import JudgeCallResult
+from obs_platform.evaluation.judges.client import (
+    JudgeCallResult,
+    JudgeClient,
+    create_judge_client,
+)
 from obs_platform.evaluation.persistence import (
     persist_evaluation_result,
     persist_judge_call,
@@ -142,25 +148,42 @@ async def evaluate_run(
     evaluated_at = datetime.now(UTC)
     outcomes: list[EvaluatorOutcome] = []
     judge_persistence_errors: list[Exception] = []
+    judge_settings = get_judge_settings()
+    judge_client: JudgeClient | None = None
     for evaluator in DETERMINISTIC_EVALUATORS:
+        active_evaluator = evaluator
         call_log: list[JudgeCallResult[Any]] = []
-        try:
-            if evaluator.type is EvaluatorType.DETERMINISTIC:
-                result = evaluator.evaluate(run)
-            elif evaluator.type is EvaluatorType.LLM_BASED:
-                result = await evaluator.evaluate_async(run, call_log)
-            else:
-                raise ValueError(f"unsupported evaluator type: {evaluator.type}")
-            status = EvaluatorExecutionStatus.COMPLETED
-        except Exception as exc:
-            result = _evaluator_exception_result(exc)
-            status = EvaluatorExecutionStatus.FAILED
+        if _should_skip_unconfigured_judge(active_evaluator, judge_settings):
+            result = _judge_unavailable_result()
+            status = EvaluatorExecutionStatus.SKIPPED
+        else:
+            try:
+                if active_evaluator.type is EvaluatorType.DETERMINISTIC:
+                    result = active_evaluator.evaluate(run)
+                elif active_evaluator.type is EvaluatorType.LLM_BASED:
+                    if _requires_judge_credentials(active_evaluator):
+                        if judge_client is None:
+                            judge_client = create_judge_client(judge_settings)
+                        active_evaluator = _with_judge_client(
+                            active_evaluator, judge_client
+                        )
+                    result = await active_evaluator.evaluate_async(run, call_log)
+                else:
+                    raise ValueError(
+                        f"unsupported evaluator type: {active_evaluator.type}"
+                    )
+                status = EvaluatorExecutionStatus.COMPLETED
+            except Exception as exc:
+                result = _evaluator_exception_result(exc)
+                status = EvaluatorExecutionStatus.FAILED
 
-        await persist_evaluation_result(session, run_id, evaluator, status, result)
+        await persist_evaluation_result(
+            session, run_id, active_evaluator, status, result
+        )
         outcomes.append(
             EvaluatorOutcome(
-                evaluator_name=evaluator.name,
-                evaluator_version=evaluator.version,
+                evaluator_name=active_evaluator.name,
+                evaluator_version=active_evaluator.version,
                 execution_status=status,
                 result=result,
             )
@@ -170,8 +193,8 @@ async def evaluate_run(
                 await persist_judge_call(
                     session,
                     run_id,
-                    evaluator_name=evaluator.name,
-                    evaluator_version=evaluator.version,
+                    evaluator_name=active_evaluator.name,
+                    evaluator_version=active_evaluator.version,
                     call=call,
                     succeeded=status is EvaluatorExecutionStatus.COMPLETED,
                 )
@@ -648,6 +671,52 @@ async def _evaluation_run_view(
                 error_failed_component=llm_call.error_failed_component,
             )
             for sequence, llm_call in enumerate(llm_calls, start=1)
+        ],
+    )
+
+
+def get_judge_settings() -> JudgeSettings:
+    return JudgeOnlySettings().judge
+
+
+def _should_skip_unconfigured_judge(
+    evaluator: Evaluator,
+    judge_settings: JudgeSettings,
+) -> bool:
+    return (
+        evaluator.type is EvaluatorType.LLM_BASED
+        and _requires_judge_credentials(evaluator)
+        and not judge_settings.is_configured
+    )
+
+
+def _requires_judge_credentials(evaluator: Evaluator) -> bool:
+    return bool(getattr(evaluator, "requires_judge_credentials", False))
+
+
+def _with_judge_client(evaluator: Evaluator, judge_client: JudgeClient) -> Evaluator:
+    with_client = getattr(evaluator, "with_judge_client", None)
+    if not callable(with_client):
+        return evaluator
+    configured_evaluator = with_client(judge_client)
+    if not isinstance(configured_evaluator, Evaluator):
+        raise TypeError("with_judge_client must return an Evaluator")
+    return configured_evaluator
+
+
+def _judge_unavailable_result() -> EvaluationResult:
+    return EvaluationResult(
+        passed=True,
+        score=None,
+        label=None,
+        severity=None,
+        reason="judge credentials not configured",
+        findings=[
+            EvaluationFinding(
+                code="judge_unavailable",
+                message="judge credentials not configured",
+                data={},
+            )
         ],
     )
 
