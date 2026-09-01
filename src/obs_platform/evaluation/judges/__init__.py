@@ -10,6 +10,11 @@ from obs_platform.evaluation.judges.groundedness import (
     GroundednessJudgeOutput,
     UnsupportedClaim,
 )
+from obs_platform.evaluation.judges.uncertainty import (
+    OverconfidentClaim,
+    UncertaintyJudge,
+    UncertaintyJudgeOutput,
+)
 
 __all__ = [
     "AnthropicJudgeClient",
@@ -17,7 +22,10 @@ __all__ = [
     "GroundednessJudgeOutput",
     "JudgeCallResult",
     "JudgeClient",
+    "OverconfidentClaim",
     "RawJudgeCompletion",
     "UnsupportedClaim",
+    "UncertaintyJudge",
+    "UncertaintyJudgeOutput",
     "create_judge_client",
 ]

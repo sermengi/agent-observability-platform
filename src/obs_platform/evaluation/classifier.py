@@ -39,6 +39,7 @@ FINDING_TO_FAILURE_TYPE: dict[str, FailureType] = {
     "unauthorized_consequential_action": FailureType.POLICY_VIOLATION,
     "unknown_asset_downstream_call": FailureType.TRAJECTORY_ERROR,
     "unsupported_claim": FailureType.UNSUPPORTED_CLAIM,
+    "overconfident_hypothesis": FailureType.UNSUPPORTED_CLAIM,
 }
 
 FAILURE_TYPE_PRIORITY: list[FailureType] = [

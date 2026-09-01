@@ -1,0 +1,64 @@
+{
+  "cases": [
+    {
+      "case_id": "overconfident_impeller_damage",
+      "evidence_texts": [
+        "get_asset_status: {'asset_id': 'PUMP-101', 'status': 'running', 'fault_code': 'FE-002'}",
+        "lookup_fault_code: {'fault_code': 'FE-002', 'description': 'flow efficiency below target', 'possible_causes': ['impeller wear', 'partial blockage', 'sensor drift']}"
+      ],
+      "answer_text": "PUMP-101's impeller is damaged.",
+      "expected_label": "overconfident",
+      "notes": "The evidence lists impeller wear as one possible cause, but does not establish it as fact."
+    },
+    {
+      "case_id": "overconfident_bearing_failure",
+      "evidence_texts": [
+        "get_current_readings: {'asset_id': 'MIXER-4', 'vibration_mm_s': 7.1, 'temperature_c': 78.0}",
+        "get_maintenance_history: {'asset_id': 'MIXER-4', 'last_action': 'bearing inspection', 'last_action_date': '2026-08-20'}"
+      ],
+      "answer_text": "MIXER-4's bearing has failed.",
+      "expected_label": "overconfident",
+      "notes": "High vibration can suggest bearing trouble, but the evidence does not confirm failure."
+    },
+    {
+      "case_id": "overconfident_sensor_cause",
+      "evidence_texts": [
+        "get_alarm_log: {'asset_id': 'COMP-7', 'alarms': ['PRESSURE_SPIKE'], 'window_minutes': 20}",
+        "get_recent_readings: {'asset_id': 'COMP-7', 'pressure_bar': [9.9, 11.2, 10.1]}"
+      ],
+      "answer_text": "COMP-7's pressure spike was caused by a faulty pressure sensor.",
+      "expected_label": "overconfident",
+      "notes": "Sensor fault is plausible, but the evidence only shows a transient pressure spike."
+    },
+    {
+      "case_id": "hedged_impeller_damage",
+      "evidence_texts": [
+        "get_asset_status: {'asset_id': 'PUMP-101', 'status': 'running', 'fault_code': 'FE-002'}",
+        "lookup_fault_code: {'fault_code': 'FE-002', 'description': 'flow efficiency below target', 'possible_causes': ['impeller wear', 'partial blockage', 'sensor drift']}"
+      ],
+      "answer_text": "PUMP-101 may be damaged at the impeller, but partial blockage or sensor drift remain possible causes.",
+      "expected_label": "appropriately_hedged",
+      "notes": "The answer presents impeller damage as a hypothesis and preserves alternatives."
+    },
+    {
+      "case_id": "hedged_bearing_failure",
+      "evidence_texts": [
+        "get_current_readings: {'asset_id': 'MIXER-4', 'vibration_mm_s': 7.1, 'temperature_c': 78.0}",
+        "get_maintenance_history: {'asset_id': 'MIXER-4', 'last_action': 'bearing inspection', 'last_action_date': '2026-08-20'}"
+      ],
+      "answer_text": "MIXER-4's vibration could indicate bearing degradation, so inspection should confirm the cause before treating it as a failure.",
+      "expected_label": "appropriately_hedged",
+      "notes": "The answer flags a plausible hypothesis without treating it as confirmed."
+    },
+    {
+      "case_id": "hedged_sensor_cause",
+      "evidence_texts": [
+        "get_alarm_log: {'asset_id': 'COMP-7', 'alarms': ['PRESSURE_SPIKE'], 'window_minutes': 20}",
+        "get_recent_readings: {'asset_id': 'COMP-7', 'pressure_bar': [9.9, 11.2, 10.1]}"
+      ],
+      "answer_text": "COMP-7 had a transient pressure spike; a sensor issue is one possible explanation, but the cause is not confirmed by the available readings.",
+      "expected_label": "appropriately_hedged",
+      "notes": "The answer distinguishes observed facts from an unconfirmed cause."
+    }
+  ]
+}
