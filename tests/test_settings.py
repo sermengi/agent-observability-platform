@@ -62,6 +62,9 @@ async def test_env_example_documents_all_settings_variables() -> None:
         "API__HOST",
         "API__PORT",
         "API__LOG_LEVEL",
+        "JUDGE__PROVIDER",
+        "JUDGE__MODEL",
+        "JUDGE__ANTHROPIC_API_KEY",
     }
 
     for variable in expected_variables:
