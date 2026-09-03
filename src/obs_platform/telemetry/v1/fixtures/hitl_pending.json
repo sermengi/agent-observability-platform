@@ -6,8 +6,8 @@
   "agent_version": "0.1.0",
   "prompt_version": "prompt-debug-001",
   "environment": "fixture",
-  "raw_input": "Create high priority maintenance for recurring FE-003 on PUMP-103.",
-  "normalized_input": "Create high priority maintenance for PUMP-103 FE-003 recurrence",
+  "raw_input": "Create a high-priority maintenance work order for PUMP-103.",
+  "normalized_input": "Create high-priority maintenance work order for PUMP-103",
   "scenario_id": "GS-08",
   "started_at": "2026-08-26T11:00:00Z",
   "completed_at": null,
@@ -26,7 +26,7 @@
       "status": "success",
       "input": {
         "asset_id": "PUMP-103",
-        "fault_code": "FE-003"
+        "fault_code": "F102"
       },
       "output": {
         "checkpoint_id": "checkpoint-gs08-approval"
@@ -48,8 +48,8 @@
         "asset_id": "PUMP-103"
       },
       "output": {
-        "fault_code": "FE-003",
-        "policy_id": "PP-001"
+        "fault_code": "F102",
+        "policy_id": "PP-002"
       },
       "metadata": null,
       "error": null
@@ -85,7 +85,7 @@
       },
       "result": {
         "status": "degraded",
-        "fault_code": "FE-003"
+        "fault_code": "F102"
       },
       "started_at": "2026-08-26T11:00:02Z",
       "completed_at": "2026-08-26T11:00:02.150000Z",
@@ -116,15 +116,36 @@
       "error": null
     },
     {
+      "tool_call_id": "tool-gs08-docs",
+      "span_id": "span-gs08-evidence",
+      "tool_name": "search_maintenance_docs",
+      "sequence": 4,
+      "arguments": {
+        "query": "PUMP-103 recurring bearing overheating F102 root cause"
+      },
+      "result": {
+        "documents": [
+          "DOC-04"
+        ],
+        "recommendation": "investigate recurring bearing overheating root cause"
+      },
+      "started_at": "2026-08-26T11:00:03.300000Z",
+      "completed_at": "2026-08-26T11:00:03.700000Z",
+      "latency_ms": 400,
+      "retry_count": 0,
+      "status": "success",
+      "error": null
+    },
+    {
       "tool_call_id": "tool-gs08-policy",
       "span_id": "span-gs08-evidence",
       "tool_name": "get_plant_policy",
-      "sequence": 4,
+      "sequence": 5,
       "arguments": {
-        "policy_id": "PP-001"
+        "policy_id": "PP-002"
       },
       "result": {
-        "policy_id": "PP-001",
+        "policy_id": "PP-002",
         "recurrence_priority_floor": "high"
       },
       "started_at": "2026-08-26T11:00:04Z",
@@ -138,10 +159,10 @@
       "tool_call_id": "tool-gs08-draft",
       "span_id": "span-gs08-root",
       "tool_name": "create_work_order_draft",
-      "sequence": 5,
+      "sequence": 6,
       "arguments": {
         "asset_id": "PUMP-103",
-        "fault_code": "FE-003",
+        "fault_code": "F102",
         "priority": "high"
       },
       "result": {
@@ -175,7 +196,7 @@
       },
       "output_payload": {
         "asset_id": "PUMP-103",
-        "fault_code": "FE-003"
+        "fault_code": "F102"
       },
       "status": "success",
       "error": null
@@ -193,12 +214,12 @@
       "draft_id": "draft-gs08-001",
       "asset_id": "PUMP-103",
       "priority": "high",
-      "policy_id": "PP-001"
+      "policy_id": "PP-002"
     }
   },
   "usage": {
     "total_llm_calls": 1,
-    "total_tool_calls": 5,
+    "total_tool_calls": 6,
     "total_tokens": 25,
     "total_estimated_cost_usd": 0.000207,
     "total_retries": 0

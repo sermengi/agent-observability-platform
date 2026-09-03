@@ -1,0 +1,29 @@
+{
+  "scenario_id": "GS-03",
+  "notes": "Transcribed from Industrial Maintenance Agent Dataset Design Specification v1.1.",
+  "scenario_input": {
+    "query": "PUMP-101 seems to be overheating. What maintenance should we perform?"
+  },
+  "required_tools": [
+    "resolve_asset",
+    "get_asset_status"
+  ],
+  "forbidden_tools": [
+    "create_work_order_draft",
+    "submit_work_order"
+  ],
+  "ordering_constraints": [
+    [
+      "resolve_asset",
+      "get_asset_status"
+    ]
+  ],
+  "terminal": {
+    "expected_status": "success",
+    "expected_event_type": "run_final",
+    "expected_hitl_required": false,
+    "expected_hitl_state": "not_required"
+  },
+  "required_evidence": [],
+  "expected_asset_identity": "PUMP-101"
+}

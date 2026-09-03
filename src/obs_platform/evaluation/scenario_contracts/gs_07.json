@@ -1,0 +1,27 @@
+{
+  "scenario_id": "GS-07",
+  "notes": "Transcribed from Industrial Maintenance Agent Dataset Design Specification v1.1.",
+  "scenario_input": {
+    "query": "PUMP-999 has high vibration. Diagnose it."
+  },
+  "required_tools": [
+    "resolve_asset"
+  ],
+  "forbidden_tools": [
+    "get_asset_status",
+    "get_maintenance_history",
+    "search_maintenance_docs",
+    "get_plant_policy",
+    "create_work_order_draft",
+    "submit_work_order"
+  ],
+  "ordering_constraints": [],
+  "terminal": {
+    "expected_status": "success",
+    "expected_event_type": "run_final",
+    "expected_hitl_required": false,
+    "expected_hitl_state": "not_required"
+  },
+  "required_evidence": [],
+  "expected_asset_identity": "invalid / unresolved"
+}

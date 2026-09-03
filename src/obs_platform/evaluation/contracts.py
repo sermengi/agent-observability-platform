@@ -28,12 +28,38 @@ class ScenarioContract(EvaluationModel):
 
 
 SCENARIO_CONTRACTS_VERSION = "1.0.0"
+FINAL_SUITE_REPETITIONS = 5
+GOLDEN_SCENARIO_IDS = (
+    "GS-01",
+    "GS-02",
+    "GS-03",
+    "GS-04",
+    "GS-05",
+    "GS-06",
+    "GS-07",
+    "GS-08",
+)
+DEBUG_SCENARIO_IDS = ("GS-DEBUG-SMOKE-01", "GS-DEBUG-TRAJ-01")
 
 
 CONTRACT_MANIFEST: dict[str, str] = {
+    "GS-01": "gs_01.json",
+    "GS-02": "gs_02.json",
+    "GS-03": "gs_03.json",
+    "GS-04": "gs_04.json",
+    "GS-05": "gs_05.json",
+    "GS-06": "gs_06.json",
+    "GS-07": "gs_07.json",
     "GS-08": "gs_08.json",
+}
+
+DEBUG_CONTRACT_MANIFEST: dict[str, str] = {
     "GS-DEBUG-SMOKE-01": "gs_debug_smoke_01.json",
     "GS-DEBUG-TRAJ-01": "gs_debug_traj_01.json",
+}
+ALL_CONTRACT_MANIFEST: dict[str, str] = {
+    **CONTRACT_MANIFEST,
+    **DEBUG_CONTRACT_MANIFEST,
 }
 
 
@@ -43,7 +69,7 @@ class ScenarioContractNotFoundError(KeyError):
 
 def load_scenario_contract(scenario_id: str) -> ScenarioContract:
     try:
-        filename = CONTRACT_MANIFEST[scenario_id]
+        filename = ALL_CONTRACT_MANIFEST[scenario_id]
     except KeyError as exc:
         raise ScenarioContractNotFoundError(scenario_id) from exc
 
@@ -68,3 +94,11 @@ def load_scenario_contracts() -> dict[str, ScenarioContract]:
 
 
 SCENARIO_CONTRACTS: dict[str, ScenarioContract] = load_scenario_contracts()
+DEBUG_SCENARIO_CONTRACTS: dict[str, ScenarioContract] = {
+    scenario_id: load_scenario_contract(scenario_id)
+    for scenario_id in DEBUG_CONTRACT_MANIFEST
+}
+ALL_SCENARIO_CONTRACTS: dict[str, ScenarioContract] = {
+    **SCENARIO_CONTRACTS,
+    **DEBUG_SCENARIO_CONTRACTS,
+}

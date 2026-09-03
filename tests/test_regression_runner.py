@@ -16,7 +16,12 @@ from obs_platform.db.models import (
     Span,
     ToolCall,
 )
-from obs_platform.evaluation.contracts import load_scenario_contract
+from obs_platform.evaluation.contracts import (
+    FINAL_SUITE_REPETITIONS,
+    GOLDEN_SCENARIO_IDS,
+    ScenarioContract,
+    load_scenario_contract,
+)
 from obs_platform.ingestion.runs import ingest_run_event
 from obs_platform.regressions.persistence import create_regression_run
 from obs_platform.regressions.runner import (
@@ -80,6 +85,7 @@ async def test_regression_runner_dispatches_ingests_links_and_evaluates(
         repetitions=2,
         scenario_ids=["GS-DEBUG-TRAJ-01"],
     )
+    regression_run_id = regression_run.id
     calls: list[tuple[str, str, int | None]] = []
 
     async def ingest(
@@ -103,12 +109,12 @@ async def test_regression_runner_dispatches_ingests_links_and_evaluates(
         run_evaluation=evaluate,
     )
 
-    await runner.run(regression_run.id)
+    await runner.run(regression_run_id)
 
     rows = list(
         await session.scalars(
             select(AgentRun)
-            .where(AgentRun.regression_run_id == regression_run.id)
+            .where(AgentRun.regression_run_id == regression_run_id)
             .order_by(AgentRun.repetition_index)
         )
     )
@@ -123,8 +129,8 @@ async def test_regression_runner_dispatches_ingests_links_and_evaluates(
         ("evaluate", "GS-DEBUG-TRAJ-01", 1),
     ]
 
-    await _delete_runs_for_regression(session, regression_run.id)
-    await _delete_regression_run(session, regression_run.id)
+    await _delete_runs_for_regression(session, regression_run_id)
+    await _delete_regression_run(session, regression_run_id)
 
 
 async def test_runner_records_failed_repetition_and_continues(
@@ -139,6 +145,7 @@ async def test_runner_records_failed_repetition_and_continues(
         repetitions=2,
         scenario_ids=["GS-DEBUG-TRAJ-01"],
     )
+    regression_run_id = regression_run.id
     attempted: list[int] = []
 
     async def ingest(
@@ -160,16 +167,16 @@ async def test_runner_records_failed_repetition_and_continues(
         run_evaluation=_noop_evaluation,
     )
 
-    result = await runner.run(regression_run.id)
+    result = await runner.run(regression_run_id)
 
     assert result.created_run_ids == [
-        f"phase7-regression-{regression_run.id}-GS-DEBUG-TRAJ-01-rep-1"
+        f"phase7-regression-{regression_run_id}-GS-DEBUG-TRAJ-01-rep-1"
     ]
     assert len(result.errors) == 1
     assert attempted == [0, 1]
 
-    await _delete_runs_for_regression(session, regression_run.id)
-    await _delete_regression_run(session, regression_run.id)
+    await _delete_runs_for_regression(session, regression_run_id)
+    await _delete_regression_run(session, regression_run_id)
 
 
 async def test_mocked_two_by_two_regression_links_and_evaluates_mixed_outcomes(
@@ -423,6 +430,55 @@ async def test_gs08_hitl_gate_violation_marks_regression_failed(
     await _delete_regression_run(session, regression_run_id)
 
 
+async def test_final_eight_scenario_suite_runs_five_repetitions_with_gs08_hitl(
+    session: AsyncSession,
+) -> None:
+    regression_run = await create_regression_run(
+        session,
+        agent_version="agent-v1",
+        agent_model_provider="mock-provider",
+        agent_model_name="mock-model",
+        prompt_version="prompt-v1",
+        repetitions=FINAL_SUITE_REPETITIONS,
+        scenario_ids=list(GOLDEN_SCENARIO_IDS),
+    )
+    regression_run_id = regression_run.id
+    target = FinalSuiteTarget()
+    runner = RegressionRunner(
+        session=session,
+        target=target,
+        run_evaluation=_noop_evaluation,
+    )
+
+    result = await runner.run(regression_run_id)
+
+    rows = list(
+        await session.scalars(
+            select(AgentRun)
+            .where(AgentRun.regression_run_id == regression_run_id)
+            .order_by(AgentRun.scenario_id, AgentRun.repetition_index)
+        )
+    )
+    assert result.errors == []
+    assert len(rows) == 40
+    assert target.resumed_checkpoint_ids == [
+        "checkpoint-gs08-approval",
+        "checkpoint-gs08-approval",
+        "checkpoint-gs08-approval",
+        "checkpoint-gs08-approval",
+        "checkpoint-gs08-approval",
+    ]
+    assert {(row.scenario_id, row.repetition_index) for row in rows} == {
+        (scenario_id, repetition_index)
+        for scenario_id in GOLDEN_SCENARIO_IDS
+        for repetition_index in range(FINAL_SUITE_REPETITIONS)
+    }
+    assert {row.run_id for row in rows} == set(result.created_run_ids)
+
+    await _delete_runs_for_regression(session, regression_run_id)
+    await _delete_regression_run(session, regression_run_id)
+
+
 async def _noop_evaluation(session: AsyncSession, run_id: str) -> None:
     return None
 
@@ -440,6 +496,31 @@ class RecordingHITLTarget(AgentTarget):
         decision: str,
     ) -> ExtendedRunEvent:
         self._calls.append(f"resume:{checkpoint_id}:{decision}")
+        return load_fixture("hitl_approved")
+
+
+class FinalSuiteTarget(AgentTarget):
+    def __init__(self) -> None:
+        self.resumed_checkpoint_ids: list[str] = []
+
+    async def run_scenario(self, contract: ScenarioContract) -> ExtendedRunEvent:
+        if contract.scenario_id == "GS-08":
+            return load_fixture("hitl_pending")
+        return load_fixture("healthy_success").model_copy(
+            deep=True,
+            update={
+                "scenario_id": contract.scenario_id,
+                "raw_input": contract.scenario_input,
+                "normalized_input": contract.scenario_input.get("query"),
+            },
+        )
+
+    async def resume_after_approval(
+        self,
+        checkpoint_id: str,
+        decision: str,
+    ) -> ExtendedRunEvent:
+        self.resumed_checkpoint_ids.append(checkpoint_id)
         return load_fixture("hitl_approved")
 
 

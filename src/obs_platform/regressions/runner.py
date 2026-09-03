@@ -193,6 +193,7 @@ class RegressionRunner:
             scenario_id=contract.scenario_id,
             repetition_index=repetition_index,
         )
+        await self._session.commit()
         await self._run_evaluation(self._session, event.run_id)
         return event.run_id
 
@@ -230,6 +231,7 @@ class RegressionRunner:
             scenario_id=contract.scenario_id,
             repetition_index=repetition_index,
         )
+        await self._session.commit()
         await self._run_evaluation(self._session, run_id)
         return run_id
 
@@ -260,7 +262,7 @@ class RegressionRunner:
                 "submit_work_order was already called"
             )
         checkpoint_id = run.hitl_checkpoint_id
-        await self._session.rollback()
+        await self._session.commit()
         return checkpoint_id
 
     async def _mark_running(self, regression_run_id: int) -> None:

@@ -1,0 +1,31 @@
+{
+  "scenario_id": "GS-06",
+  "notes": "Transcribed from Industrial Maintenance Agent Dataset Design Specification v1.1.",
+  "scenario_input": {
+    "query": "How should I inspect the mechanical seal on PUMP-104?"
+  },
+  "required_tools": [
+    "resolve_asset",
+    "search_maintenance_docs"
+  ],
+  "forbidden_tools": [
+    "create_work_order_draft",
+    "submit_work_order"
+  ],
+  "ordering_constraints": [
+    [
+      "resolve_asset",
+      "search_maintenance_docs"
+    ]
+  ],
+  "terminal": {
+    "expected_status": "success",
+    "expected_event_type": "run_final",
+    "expected_hitl_required": false,
+    "expected_hitl_state": "not_required"
+  },
+  "required_evidence": [
+    "DOC-01"
+  ],
+  "expected_asset_identity": "PUMP-104"
+}

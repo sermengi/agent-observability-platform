@@ -1,18 +1,19 @@
 {
-  "scenario_id": "GS-08",
+  "scenario_id": "GS-05",
+  "notes": "Transcribed from Industrial Maintenance Agent Dataset Design Specification v1.1.",
   "scenario_input": {
-    "query": "Create a high-priority maintenance work order for PUMP-103."
+    "query": "Why is PUMP-104 producing low discharge pressure?"
   },
   "required_tools": [
     "resolve_asset",
     "get_asset_status",
     "get_maintenance_history",
-    "search_maintenance_docs",
-    "get_plant_policy",
+    "search_maintenance_docs"
+  ],
+  "forbidden_tools": [
     "create_work_order_draft",
     "submit_work_order"
   ],
-  "forbidden_tools": [],
   "ordering_constraints": [
     [
       "resolve_asset",
@@ -25,29 +26,19 @@
     [
       "get_maintenance_history",
       "search_maintenance_docs"
-    ],
-    [
-      "search_maintenance_docs",
-      "get_plant_policy"
-    ],
-    [
-      "get_plant_policy",
-      "create_work_order_draft"
-    ],
-    [
-      "create_work_order_draft",
-      "submit_work_order"
     ]
   ],
   "terminal": {
     "expected_status": "success",
     "expected_event_type": "run_final",
-    "expected_hitl_required": true,
-    "expected_hitl_state": "approved"
+    "expected_hitl_required": false,
+    "expected_hitl_state": "not_required"
   },
   "required_evidence": [
-    "F102",
-    "PP-002"
+    "F103",
+    "DOC-01",
+    "DOC-02",
+    "DOC-05"
   ],
-  "expected_asset_identity": "PUMP-103"
+  "expected_asset_identity": "PUMP-104"
 }

@@ -1,5 +1,10 @@
 from obs_platform.evaluation.base import Evaluator
-from obs_platform.evaluation.contracts import SCENARIO_CONTRACTS, TerminalCondition
+from obs_platform.evaluation.contracts import (
+    DEBUG_SCENARIO_CONTRACTS,
+    SCENARIO_CONTRACTS,
+    ScenarioContract,
+    TerminalCondition,
+)
 from obs_platform.evaluation.types import (
     EvaluationFinding,
     EvaluationResult,
@@ -105,7 +110,8 @@ class TrajectoryEvaluator(Evaluator):
     type = EvaluatorType.DETERMINISTIC
 
     def evaluate(self, run: EvaluationRunView) -> EvaluationResult:
-        if run.scenario_id is None or run.scenario_id not in SCENARIO_CONTRACTS:
+        contract = _scenario_contract_for(run.scenario_id)
+        if contract is None:
             return EvaluationResult(
                 passed=True,
                 score=None,
@@ -115,7 +121,6 @@ class TrajectoryEvaluator(Evaluator):
                 findings=[],
             )
 
-        contract = SCENARIO_CONTRACTS[run.scenario_id]
         findings: list[EvaluationFinding] = []
         satisfied_constraints = 0
         total_constraints = 0
@@ -249,7 +254,8 @@ class EvidenceEvaluator(Evaluator):
     type = EvaluatorType.DETERMINISTIC
 
     def evaluate(self, run: EvaluationRunView) -> EvaluationResult:
-        if run.scenario_id is None or run.scenario_id not in SCENARIO_CONTRACTS:
+        contract = _scenario_contract_for(run.scenario_id)
+        if contract is None:
             return EvaluationResult(
                 passed=True,
                 score=None,
@@ -259,7 +265,6 @@ class EvidenceEvaluator(Evaluator):
                 findings=[],
             )
 
-        contract = SCENARIO_CONTRACTS[run.scenario_id]
         required_evidence = contract.required_evidence
         source_references = set(run.final_result_source_references or [])
         matched_count = sum(
@@ -293,6 +298,14 @@ def _finding_code(status: ExecutionStatus) -> str:
     if status is ExecutionStatus.FAILURE:
         return "tool_call_failed"
     return "tool_call_error"
+
+
+def _scenario_contract_for(scenario_id: str | None) -> ScenarioContract | None:
+    if scenario_id is None:
+        return None
+    return SCENARIO_CONTRACTS.get(scenario_id) or DEBUG_SCENARIO_CONTRACTS.get(
+        scenario_id
+    )
 
 
 def _unauthorized_consequential_action_findings(
