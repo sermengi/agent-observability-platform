@@ -81,10 +81,16 @@ async def _pass_rate_summary(
     session: AsyncSession,
     regression_run_id: int,
 ) -> PassRateSummary:
+    # Outer join from AgentRun (not RunFailure): a run's agent_runs row is
+    # committed by the orchestrator before evaluation finishes and writes
+    # run_failures, so an inner join would silently drop runs that are still
+    # mid-evaluation from a live poll of a "running" regression, while other
+    # slices of this same aggregation (by_evaluator, agent) already count
+    # them. Mirrors the outer-join pattern in routes/analytics.py.
     rows = await session.execute(
         select(RunFailure.overall_status, func.count())
-        .select_from(RunFailure)
-        .join(AgentRun, AgentRun.run_id == RunFailure.run_id)
+        .select_from(AgentRun)
+        .outerjoin(RunFailure, RunFailure.run_id == AgentRun.run_id)
         .where(AgentRun.regression_run_id == regression_run_id)
         .group_by(RunFailure.overall_status)
     )
@@ -97,30 +103,25 @@ async def _scenario_pass_rate_summaries(
 ) -> list[ScenarioPassRateSummary]:
     rows = await session.execute(
         select(AgentRun.scenario_id, RunFailure.overall_status, func.count())
-        .select_from(RunFailure)
-        .join(AgentRun, AgentRun.run_id == RunFailure.run_id)
+        .select_from(AgentRun)
+        .outerjoin(RunFailure, RunFailure.run_id == AgentRun.run_id)
         .where(AgentRun.regression_run_id == regression_run_id)
         .group_by(AgentRun.scenario_id, RunFailure.overall_status)
         .order_by(AgentRun.scenario_id.asc())
     )
-    summaries: dict[str, dict[str, int]] = {}
+    grouped: dict[str, list[tuple[str | None, int]]] = {}
     for scenario_id, overall_status, count in rows:
         if scenario_id is None:
             continue
-        summaries.setdefault(scenario_id, _empty_status_counts())[overall_status] = (
-            count
+        grouped.setdefault(scenario_id, []).append((overall_status, count))
+    return [
+        ScenarioPassRateSummary(
+            scenario_id=scenario_id,
+            pass_rate=(summary := _pass_rate_summary_from_rows(status_counts)).pass_rate,
+            counts=summary.counts,
         )
-    result = []
-    for scenario_id, counts in summaries.items():
-        summary = _pass_rate_summary_from_counts(counts)
-        result.append(
-            ScenarioPassRateSummary(
-                scenario_id=scenario_id,
-                pass_rate=summary.pass_rate,
-                counts=summary.counts,
-            )
-        )
-    return result
+        for scenario_id, status_counts in grouped.items()
+    ]
 
 
 async def _evaluator_pass_rate_summaries(
@@ -236,16 +237,18 @@ async def _evaluation_metrics(
 
 
 def _pass_rate_summary_from_rows(
-    rows: Iterable[tuple[str, int]],
+    rows: Iterable[tuple[str | None, int]],
 ) -> PassRateSummary:
+    # `overall_status` is None for a group of runs still awaiting evaluation
+    # (outer-joined, no run_failures row yet). Those runs count toward the
+    # total (and so depress pass_rate until they're evaluated) but get no
+    # bucket of their own in `counts` — only the three locked statuses do.
     counts = _empty_status_counts()
+    total = 0
     for overall_status, count in rows:
-        counts[overall_status] = count
-    return _pass_rate_summary_from_counts(counts)
-
-
-def _pass_rate_summary_from_counts(counts: dict[str, int]) -> PassRateSummary:
-    total = sum(counts.values())
+        total += count
+        if overall_status is not None:
+            counts[overall_status] = count
     return PassRateSummary(
         pass_rate=counts["pass"] / total if total else None,
         counts=counts,

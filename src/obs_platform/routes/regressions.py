@@ -121,6 +121,12 @@ async def _execute_regression(engine: AsyncEngine, regression_run_id: int) -> No
 
 
 def _mock_target() -> MockedAgentTarget:
+    # ponytail: same healthy_success fixture for every non-GS-08 scenario —
+    # satisfies only GS-03's tool contract, so a real POST here reports a
+    # broadly-failing suite regardless of what's under test. Intentional
+    # stub (see README "Known Limitations") pending Phase 10's real
+    # Project1HTTPAgentTarget; upgrade to per-scenario scripted fixtures if
+    # this endpoint needs to produce a meaningful signal before then.
     events = {
         scenario_id: load_fixture("healthy_success")
         for scenario_id in GOLDEN_SCENARIO_IDS

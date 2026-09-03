@@ -88,6 +88,68 @@ async def test_regression_aggregation_excludes_skipped_evaluators_and_is_stable(
     assert groundedness.pass_rate == pytest.approx(0.5)
     assert first == second
 
+
+async def test_regression_aggregation_counts_runs_still_awaiting_evaluation(
+    session: AsyncSession,
+) -> None:
+    """A run's agent_runs row is committed before evaluation writes
+    run_failures, so a live poll of a "running" regression can see a linked
+    run with no run_failures row yet. It must still count toward the
+    pass-rate denominator instead of silently vanishing (regression test for
+    the inner-join bug: it used to be dropped from `overall`/`by_scenario`
+    while `agent` already counted it).
+    """
+    regression = await create_regression_run(
+        session,
+        agent_version="agent-v1",
+        agent_model_provider="mock-provider",
+        agent_model_name="mock-model",
+        prompt_version="prompt-v1",
+        repetitions=2,
+        scenario_ids=["GS-DEBUG-SMOKE-01"],
+        name="phase7 aggregation test",
+    )
+    regression_run_id = regression.id
+    await session.commit()
+    await session.rollback()
+
+    for repetition, evaluated in [(0, True), (1, False)]:
+        run_id = f"phase7-aggregation-pending-{regression_run_id}-{repetition}"
+        event = load_fixture("healthy_success").model_copy(
+            deep=True, update={"run_id": run_id}
+        )
+        await session.rollback()
+        await ingest_run_event(session, event)
+        await persist_regression_linkage(
+            session, run_id, regression_run_id, "GS-DEBUG-SMOKE-01", repetition
+        )
+        await session.commit()
+        if evaluated:
+            session.add(
+                RunFailure(
+                    run_id=run_id,
+                    overall_status="pass",
+                    primary_category=None,
+                    secondary_category=None,
+                    max_severity=None,
+                    classifier_version="test",
+                    updated_at=datetime(2050, 1, 1, tzinfo=UTC),
+                )
+            )
+            await session.commit()
+
+    aggregation = await aggregate_regression_run(session, regression_run_id)
+
+    assert aggregation.overall.counts == {"pass": 1, "fail": 0, "incomplete": 0}
+    assert aggregation.overall.pass_rate == pytest.approx(0.5)
+    assert len(aggregation.by_scenario) == 1
+    assert aggregation.by_scenario[0].scenario_id == "GS-DEBUG-SMOKE-01"
+    assert aggregation.by_scenario[0].counts == {"pass": 1, "fail": 0, "incomplete": 0}
+    assert aggregation.by_scenario[0].pass_rate == pytest.approx(0.5)
+    assert aggregation.agent.avg_tokens is not None  # both runs counted here too
+
+    await _delete_regression(session, regression_run_id)
+
     await _delete_regression(session, regression_run_id)
 
 
