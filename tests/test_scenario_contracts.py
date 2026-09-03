@@ -57,9 +57,14 @@ def test_gs08_contract_passes_hitl_fixture_pair() -> None:
     pending = _view_from_event(load_fixture("hitl_pending"))
     approved = _view_from_event(load_fixture("hitl_approved"))
 
-    for run in (pending, approved):
-        assert TrajectoryEvaluator().evaluate(run).passed is True
-        assert EvidenceEvaluator().evaluate(run).passed is True
+    pending_result = TrajectoryEvaluator().evaluate(pending)
+    assert pending_result.passed is False
+    assert "terminal_condition_mismatch" in {
+        finding.code for finding in pending_result.findings
+    }
+
+    assert TrajectoryEvaluator().evaluate(approved).passed is True
+    assert EvidenceEvaluator().evaluate(approved).passed is True
 
 
 def test_gs08_contract_matches_common_hitl_fixture_tool_sequence() -> None:
@@ -73,13 +78,16 @@ def test_gs08_contract_matches_common_hitl_fixture_tool_sequence() -> None:
         "get_maintenance_history",
         "get_plant_policy",
         "create_work_order_draft",
+        "submit_work_order",
     ]
-    assert set(contract.required_tools) <= {
+    assert set(contract.required_tools) - {"submit_work_order"} <= {
         tool_call.tool_name for tool_call in pending.tool_calls
     }
     assert set(contract.required_tools) <= {
         tool_call.tool_name for tool_call in approved.tool_calls
     }
+    assert contract.terminal is not None
+    assert contract.terminal.expected_hitl_required is True
     assert contract.required_evidence == []
 
 

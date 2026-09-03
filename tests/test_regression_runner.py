@@ -20,10 +20,13 @@ from obs_platform.evaluation.contracts import load_scenario_contract
 from obs_platform.ingestion.runs import ingest_run_event
 from obs_platform.regressions.persistence import create_regression_run
 from obs_platform.regressions.runner import (
+    AgentTarget,
+    HITLGateViolationError,
     MockedAgentTarget,
     RegressionRunner,
 )
 from obs_platform.telemetry.v1 import load_fixture
+from obs_platform.telemetry.v1.enums import HITLState
 from obs_platform.telemetry.v1.models import ExtendedRunEvent
 
 
@@ -46,6 +49,21 @@ async def test_mocked_agent_target_is_plain_deterministic_unit() -> None:
     second = await target.run_scenario(contract)
 
     assert isinstance(first, ExtendedRunEvent)
+    assert first.model_dump(mode="json") == second.model_dump(mode="json")
+    assert first is not second
+
+
+async def test_mocked_agent_target_resume_after_approval_is_deterministic() -> None:
+    target = MockedAgentTarget(
+        {"GS-08": load_fixture("hitl_pending")},
+        approved_events={"GS-08": load_fixture("hitl_approved")},
+    )
+
+    first = await target.resume_after_approval("checkpoint-gs08-approval", "approve")
+    second = await target.resume_after_approval("checkpoint-gs08-approval", "approve")
+
+    assert isinstance(first, ExtendedRunEvent)
+    assert first.hitl.state is HITLState.APPROVED
     assert first.model_dump(mode="json") == second.model_dump(mode="json")
     assert first is not second
 
@@ -254,8 +272,175 @@ async def test_mocked_two_by_two_regression_links_and_evaluates_mixed_outcomes(
     await _delete_regression_run(session, regression_run_id)
 
 
+async def test_gs08_hitl_regression_ingests_pending_before_resume_and_evaluates_once(
+    session: AsyncSession,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("JUDGE__ANTHROPIC_API_KEY", "")
+    regression_run = await create_regression_run(
+        session,
+        agent_version="agent-v1",
+        agent_model_provider="mock-provider",
+        agent_model_name="mock-model",
+        prompt_version="prompt-v1",
+        repetitions=1,
+        scenario_ids=["GS-08"],
+    )
+    regression_run_id = regression_run.id
+    calls: list[str] = []
+    target = RecordingHITLTarget(calls)
+
+    async def ingest_and_capture_gate_state(
+        db_session: AsyncSession,
+        event: ExtendedRunEvent,
+    ) -> None:
+        await ingest_run_event(db_session, event)
+        run = await db_session.get_one(AgentRun, event.run_id)
+        submitted = await db_session.scalar(
+            select(func.count())
+            .select_from(ToolCall)
+            .where(ToolCall.run_id == event.run_id)
+            .where(ToolCall.tool_name == "submit_work_order")
+        )
+        calls.append(f"ingest:{run.hitl_state}:{int(submitted or 0)}")
+
+    async def evaluate_and_capture_final_state(
+        db_session: AsyncSession,
+        run_id: str,
+    ) -> None:
+        run = await db_session.get_one(AgentRun, run_id)
+        calls.append(f"evaluate:{run.hitl_state}")
+        await _noop_evaluation(db_session, run_id)
+
+    runner = RegressionRunner(
+        session=session,
+        target=target,
+        ingest_run_event=ingest_and_capture_gate_state,
+        run_evaluation=evaluate_and_capture_final_state,
+    )
+
+    result = await runner.run(regression_run_id)
+
+    expected_run_id = f"phase7-regression-{regression_run_id}-GS-08-rep-0"
+    assert result.errors == []
+    assert result.created_run_ids == [expected_run_id]
+    assert calls == [
+        "ingest:pending:0",
+        "resume:checkpoint-gs08-approval:approve",
+        "ingest:approved:1",
+        "evaluate:approved",
+    ]
+    run = await session.get_one(AgentRun, expected_run_id)
+    assert run.regression_run_id == regression_run_id
+    assert run.scenario_id == "GS-08"
+    assert run.repetition_index == 0
+
+    await _delete_runs_for_regression(session, regression_run_id)
+    await _delete_regression_run(session, regression_run_id)
+
+
+async def test_gs08_hitl_regression_evaluates_only_after_resumed_snapshot(
+    session: AsyncSession,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("JUDGE__ANTHROPIC_API_KEY", "")
+    regression_run = await create_regression_run(
+        session,
+        agent_version="agent-v1",
+        agent_model_provider="mock-provider",
+        agent_model_name="mock-model",
+        prompt_version="prompt-v1",
+        repetitions=1,
+        scenario_ids=["GS-08"],
+    )
+    regression_run_id = regression_run.id
+    runner = RegressionRunner(
+        session=session,
+        target=MockedAgentTarget(
+            {"GS-08": load_fixture("hitl_pending")},
+            approved_events={"GS-08": load_fixture("hitl_approved")},
+        ),
+    )
+
+    await runner.run(regression_run_id)
+
+    expected_run_id = f"phase7-regression-{regression_run_id}-GS-08-rep-0"
+    results = list(
+        await session.scalars(
+            select(EvaluationResult)
+            .where(EvaluationResult.run_id == expected_run_id)
+            .where(EvaluationResult.regression_run_id == regression_run_id)
+            .order_by(EvaluationResult.evaluator_name)
+        )
+    )
+    assert len(results) == 7
+    assert {row.evaluator_name for row in results} == {
+        "evidence",
+        "groundedness",
+        "policy",
+        "structured_output",
+        "tool_execution",
+        "trajectory",
+        "uncertainty",
+    }
+    by_name = {row.evaluator_name: row for row in results}
+    assert by_name["trajectory"].label != "not_applicable"
+    assert by_name["evidence"].label != "not_applicable"
+
+    await _delete_runs_for_regression(session, regression_run_id)
+    await _delete_regression_run(session, regression_run_id)
+
+
+async def test_gs08_hitl_gate_violation_marks_regression_failed(
+    session: AsyncSession,
+) -> None:
+    regression_run = await create_regression_run(
+        session,
+        agent_version="agent-v1",
+        agent_model_provider="mock-provider",
+        agent_model_name="mock-model",
+        prompt_version="prompt-v1",
+        repetitions=1,
+        scenario_ids=["GS-08"],
+    )
+    regression_run_id = regression_run.id
+    runner = RegressionRunner(
+        session=session,
+        target=MockedAgentTarget(
+            {"GS-08": load_fixture("hitl_approved")},
+            approved_events={"GS-08": load_fixture("hitl_approved")},
+        ),
+    )
+
+    with pytest.raises(HITLGateViolationError):
+        await runner.run(regression_run_id)
+
+    failed = await session.get_one(RegressionRun, regression_run_id)
+    assert failed.status == "failed"
+    assert failed.completed_at is not None
+
+    await _delete_runs_for_regression(session, regression_run_id)
+    await _delete_regression_run(session, regression_run_id)
+
+
 async def _noop_evaluation(session: AsyncSession, run_id: str) -> None:
     return None
+
+
+class RecordingHITLTarget(AgentTarget):
+    def __init__(self, calls: list[str]) -> None:
+        self._calls = calls
+
+    async def run_scenario(self, contract: object) -> ExtendedRunEvent:
+        return load_fixture("hitl_pending")
+
+    async def resume_after_approval(
+        self,
+        checkpoint_id: str,
+        decision: str,
+    ) -> ExtendedRunEvent:
+        self._calls.append(f"resume:{checkpoint_id}:{decision}")
+        return load_fixture("hitl_approved")
 
 
 def _agent_run_from_event(event: ExtendedRunEvent) -> AgentRun:

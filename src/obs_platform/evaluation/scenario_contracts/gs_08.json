@@ -8,7 +8,8 @@
     "get_asset_status",
     "get_maintenance_history",
     "get_plant_policy",
-    "create_work_order_draft"
+    "create_work_order_draft",
+    "submit_work_order"
   ],
   "forbidden_tools": [],
   "ordering_constraints": [
@@ -27,9 +28,18 @@
     [
       "get_plant_policy",
       "create_work_order_draft"
+    ],
+    [
+      "create_work_order_draft",
+      "submit_work_order"
     ]
   ],
-  "terminal": null,
+  "terminal": {
+    "expected_status": "success",
+    "expected_event_type": "run_final",
+    "expected_hitl_required": true,
+    "expected_hitl_state": "approved"
+  },
   "required_evidence": [],
   "expected_asset_identity": "PUMP-103"
 }
