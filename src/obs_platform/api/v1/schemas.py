@@ -325,6 +325,20 @@ class FailureAnalyticsResponse(APIResponseModel):
     by_severity: list[FailureSeverityBreakdown]
 
 
+class ScenarioAnalyticsStats(APIResponseModel):
+    scenario_id: str
+    execution_count: int
+    pass_rate: float | None
+    failure_distribution: list[tuple[str, int]]
+    avg_latency_ms: float | None
+    p95_latency_ms: float | None
+    avg_agent_cost_usd: float | None
+
+
+class ScenarioAnalyticsResponse(APIResponseModel):
+    items: list[ScenarioAnalyticsStats]
+
+
 class RegressionCreateRequest(APIResponseModel):
     name: str | None = None
     agent_model_provider: str

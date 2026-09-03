@@ -18,6 +18,8 @@ from obs_platform.api.v1.schemas import (
     ModelUsageBreakdown,
     OverviewAnalyticsResponse,
     RunCounts,
+    ScenarioAnalyticsResponse,
+    ScenarioAnalyticsStats,
     ToolAnalyticsResponse,
     ToolStats,
     UsageAnalyticsResponse,
@@ -352,6 +354,103 @@ async def get_failures(
             )
             for row in severity_rows
         ],
+    )
+
+
+@router.get(
+    "/analytics/scenarios",
+    response_model=ScenarioAnalyticsResponse,
+    summary="Get golden scenario analytics",
+)
+async def get_scenarios(
+    params: Annotated[AnalyticsTimeRangeParams, Query()],
+    session: AsyncSession = Depends(get_session),
+) -> ScenarioAnalyticsResponse:
+    filters = _time_range_filters(params)
+    summary_rows = await session.execute(
+        select(
+            AgentRun.scenario_id.label("scenario_id"),
+            func.count().label("execution_count"),
+            func.count()
+            .filter(RunFailure.overall_status == "pass")
+            .label("pass_count"),
+            func.avg(AgentRun.execution_latency_ms).label("avg_latency_ms"),
+            func.percentile_cont(0.95)
+            .within_group(AgentRun.execution_latency_ms)
+            .filter(AgentRun.execution_latency_ms.is_not(None))
+            .label("p95_latency_ms"),
+            func.avg(AgentRun.usage_total_estimated_cost_usd).label(
+                "avg_agent_cost_usd"
+            ),
+        )
+        .select_from(AgentRun)
+        .outerjoin(RunFailure, RunFailure.run_id == AgentRun.run_id)
+        .where(
+            AgentRun.regression_run_id.is_not(None),
+            AgentRun.scenario_id.is_not(None),
+            *filters,
+        )
+        .group_by(AgentRun.scenario_id)
+        .order_by(AgentRun.scenario_id.asc())
+    )
+    failure_rows = await session.execute(
+        select(
+            AgentRun.scenario_id.label("scenario_id"),
+            RunFailure.primary_category.label("primary_category"),
+            func.count().label("failure_count"),
+        )
+        .select_from(RunFailure)
+        .join(AgentRun, AgentRun.run_id == RunFailure.run_id)
+        .where(
+            AgentRun.regression_run_id.is_not(None),
+            AgentRun.scenario_id.is_not(None),
+            RunFailure.primary_category.is_not(None),
+            *filters,
+        )
+        .group_by(AgentRun.scenario_id, RunFailure.primary_category)
+        .order_by(
+            AgentRun.scenario_id.asc(),
+            func.count().desc(),
+            RunFailure.primary_category.asc(),
+        )
+    )
+    failure_distribution: dict[str, list[tuple[str, int]]] = {}
+    for row in failure_rows:
+        if row.scenario_id is not None:
+            failure_distribution.setdefault(row.scenario_id, []).append(
+                (row.primary_category, row.failure_count)
+            )
+
+    return ScenarioAnalyticsResponse(
+        items=[
+            ScenarioAnalyticsStats(
+                scenario_id=row.scenario_id,
+                execution_count=row.execution_count,
+                pass_rate=(
+                    row.pass_count / row.execution_count
+                    if row.execution_count > 0
+                    else None
+                ),
+                failure_distribution=failure_distribution.get(row.scenario_id, []),
+                avg_latency_ms=(
+                    float(row.avg_latency_ms)
+                    if row.avg_latency_ms is not None
+                    else None
+                ),
+                p95_latency_ms=(
+                    float(row.p95_latency_ms)
+                    if row.p95_latency_ms is not None
+                    else None
+                ),
+                avg_agent_cost_usd=(
+                    float(row.avg_agent_cost_usd)
+                    if row.avg_agent_cost_usd is not None
+                    else None
+                ),
+            )
+            for row in summary_rows
+            if row.scenario_id is not None
+        ]
     )
 
 

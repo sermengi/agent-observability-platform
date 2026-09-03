@@ -8,9 +8,18 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from obs_platform.config import DatabaseOnlySettings
 from obs_platform.database import create_engine
-from obs_platform.db.models import AgentRun, LLMCall, RunFailure, Span, ToolCall
+from obs_platform.db.models import (
+    AgentRun,
+    LLMCall,
+    RegressionRun,
+    RunFailure,
+    Span,
+    ToolCall,
+)
+from obs_platform.evaluation.persistence import persist_regression_linkage
 from obs_platform.ingestion.runs import ingest_run_event
 from obs_platform.main import create_app
+from obs_platform.regressions.persistence import create_regression_run
 from obs_platform.routes import analytics, runs
 from obs_platform.telemetry.v1 import ExtendedRunEvent, load_fixture
 from obs_platform.telemetry.v1.enums import ExecutionStatus, LLMCallType
@@ -877,6 +886,170 @@ async def test_failure_analytics_openapi_exposes_only_time_range_params(
         "started_after",
         "started_before",
     }
+
+
+async def test_scenario_analytics_aggregates_only_regression_runs(
+    session: AsyncSession,
+    analytics_client: AsyncClient,
+) -> None:
+    regression = await create_regression_run(
+        session,
+        name="task9 scenario analytics test",
+        agent_version="test-agent",
+        agent_model_provider="test-provider",
+        agent_model_name="test-model",
+        prompt_version="test-prompt",
+        scenario_ids=["GS-01", "GS-02"],
+        repetitions=3,
+    )
+    regression.status = "running"
+    await session.commit()
+    run_ids = [
+        f"phase7-scenario-analytics-{regression.id}-{suffix}"
+        for suffix in ("pass", "fail", "incomplete", "older", "live")
+    ]
+    try:
+        await _seed_scenario_analytics_run(
+            session,
+            run_ids[0],
+            regression_run_id=regression.id,
+            scenario_id="GS-01",
+            repetition_index=0,
+            started_at=datetime(2055, 1, 2, tzinfo=UTC),
+            overall_status="pass",
+            latency_ms=100,
+            cost_usd=1.0,
+        )
+        await _seed_scenario_analytics_run(
+            session,
+            run_ids[1],
+            regression_run_id=regression.id,
+            scenario_id="GS-01",
+            repetition_index=1,
+            started_at=datetime(2055, 1, 2, tzinfo=UTC),
+            overall_status="fail",
+            primary_category="trajectory_error",
+            latency_ms=200,
+            cost_usd=2.0,
+        )
+        await _seed_scenario_analytics_run(
+            session,
+            run_ids[2],
+            regression_run_id=regression.id,
+            scenario_id="GS-01",
+            repetition_index=2,
+            started_at=datetime(2055, 1, 2, tzinfo=UTC),
+            overall_status="incomplete",
+            latency_ms=300,
+            cost_usd=3.0,
+        )
+        await _seed_scenario_analytics_run(
+            session,
+            run_ids[3],
+            regression_run_id=regression.id,
+            scenario_id="GS-02",
+            repetition_index=0,
+            started_at=datetime(2055, 1, 1, tzinfo=UTC),
+            overall_status="pass",
+            latency_ms=400,
+            cost_usd=4.0,
+        )
+        await _seed_scenario_analytics_run(
+            session,
+            run_ids[4],
+            regression_run_id=None,
+            scenario_id="GS-01",
+            repetition_index=None,
+            started_at=datetime(2055, 1, 2, tzinfo=UTC),
+            overall_status="pass",
+            latency_ms=999,
+            cost_usd=99.0,
+        )
+
+        response = await analytics_client.get("/v1/analytics/scenarios")
+
+        assert response.status_code == 200
+        assert response.json() == {
+            "items": [
+                {
+                    "scenario_id": "GS-01",
+                    "execution_count": 3,
+                    "pass_rate": pytest.approx(1 / 3),
+                    "failure_distribution": [["trajectory_error", 1]],
+                    "avg_latency_ms": pytest.approx(200.0),
+                    "p95_latency_ms": pytest.approx(290.0),
+                    "avg_agent_cost_usd": pytest.approx(2.0),
+                },
+                {
+                    "scenario_id": "GS-02",
+                    "execution_count": 1,
+                    "pass_rate": pytest.approx(1.0),
+                    "failure_distribution": [],
+                    "avg_latency_ms": pytest.approx(400.0),
+                    "p95_latency_ms": pytest.approx(400.0),
+                    "avg_agent_cost_usd": pytest.approx(4.0),
+                },
+            ]
+        }
+
+        time_scoped = await analytics_client.get(
+            "/v1/analytics/scenarios",
+            params={"started_after": "2055-01-02T00:00:00Z"},
+        )
+        assert time_scoped.status_code == 200
+        assert [item["scenario_id"] for item in time_scoped.json()["items"]] == [
+            "GS-01"
+        ]
+    finally:
+        await _delete_runs(session, run_ids)
+        await session.execute(
+            delete(RegressionRun).where(RegressionRun.id == regression.id)
+        )
+        await session.commit()
+
+
+async def _seed_scenario_analytics_run(
+    session: AsyncSession,
+    run_id: str,
+    *,
+    regression_run_id: int | None,
+    scenario_id: str,
+    repetition_index: int | None,
+    started_at: datetime,
+    overall_status: str,
+    latency_ms: int,
+    cost_usd: float,
+    primary_category: str | None = None,
+) -> None:
+    event = _overview_event("healthy_success", run_id, started_at=started_at)
+    event.execution_latency_ms = latency_ms
+    await ingest_run_event(session, event)
+    if regression_run_id is not None:
+        assert repetition_index is not None
+        await persist_regression_linkage(
+            session,
+            run_id,
+            regression_run_id,
+            scenario_id,
+            repetition_index,
+        )
+    else:
+        run = await session.get_one(AgentRun, run_id)
+        run.scenario_id = scenario_id
+    run = await session.get_one(AgentRun, run_id)
+    run.usage_total_estimated_cost_usd = cost_usd
+    session.add(
+        RunFailure(
+            run_id=run_id,
+            overall_status=overall_status,
+            primary_category=primary_category,
+            secondary_category=None,
+            max_severity=None,
+            classifier_version="test",
+            updated_at=started_at,
+        )
+    )
+    await session.commit()
 
 
 def _fixture_with_run_id(name: str, run_id: str) -> ExtendedRunEvent:
