@@ -231,7 +231,7 @@ async def test_evaluator_exception_does_not_block_other_evaluators(
         _ThirdEvaluator(),
         _FourthEvaluator(),
     ]
-    monkeypatch.setattr(runs, "DETERMINISTIC_EVALUATORS", evaluators)
+    monkeypatch.setattr(runs, "ALL_EVALUATORS", evaluators)
 
     response = await evaluation_client.post(f"/v1/runs/{run_id}/evaluate")
 
@@ -264,7 +264,7 @@ async def test_evaluate_dispatches_deterministic_and_llm_based_evaluators(
     run_id = "phase6-evaluate-mixed-evaluator-types"
     await _create_run(session, "healthy_success", run_id)
     evaluators = [_FirstEvaluator(), _AsyncEvaluator()]
-    monkeypatch.setattr(runs, "DETERMINISTIC_EVALUATORS", evaluators)
+    monkeypatch.setattr(runs, "ALL_EVALUATORS", evaluators)
     monkeypatch.setattr(runs, "get_judge_settings", _configured_judge_settings)
 
     response = await evaluation_client.post(f"/v1/runs/{run_id}/evaluate")
@@ -292,7 +292,7 @@ async def test_evaluate_persists_judge_call_log_entries_for_llm_based_evaluator(
 ) -> None:
     run_id = "phase6-evaluate-persists-judge-calls"
     await _create_run(session, "healthy_success", run_id)
-    monkeypatch.setattr(runs, "DETERMINISTIC_EVALUATORS", [_AsyncLoggingEvaluator()])
+    monkeypatch.setattr(runs, "ALL_EVALUATORS", [_AsyncLoggingEvaluator()])
     monkeypatch.setattr(runs, "get_judge_settings", _configured_judge_settings)
 
     response = await evaluation_client.post(f"/v1/runs/{run_id}/evaluate")
@@ -322,7 +322,7 @@ async def test_evaluate_persists_judge_call_log_entries_when_evaluator_raises(
 ) -> None:
     run_id = "phase6-evaluate-persists-failed-judge-calls"
     await _create_run(session, "healthy_success", run_id)
-    monkeypatch.setattr(runs, "DETERMINISTIC_EVALUATORS", [_AsyncExplodingEvaluator()])
+    monkeypatch.setattr(runs, "ALL_EVALUATORS", [_AsyncExplodingEvaluator()])
     monkeypatch.setattr(runs, "get_judge_settings", _configured_judge_settings)
 
     response = await evaluation_client.post(f"/v1/runs/{run_id}/evaluate")
@@ -347,7 +347,7 @@ async def test_evaluate_persists_all_retry_attempts_when_judge_validation_exhaus
 ) -> None:
     run_id = "phase6-evaluate-persists-exhausted-judge-retries"
     await _create_run(session, "healthy_success", run_id)
-    monkeypatch.setattr(runs, "DETERMINISTIC_EVALUATORS", [_RetryExhaustingEvaluator()])
+    monkeypatch.setattr(runs, "ALL_EVALUATORS", [_RetryExhaustingEvaluator()])
     monkeypatch.setattr(runs, "get_judge_settings", _configured_judge_settings)
 
     response = await evaluation_client.post(f"/v1/runs/{run_id}/evaluate")
@@ -375,7 +375,7 @@ async def test_judge_call_persistence_failure_leaves_evaluation_and_failure_comm
 ) -> None:
     run_id = "phase6-judge-call-persist-failure"
     await _create_run(session, "healthy_success", run_id)
-    monkeypatch.setattr(runs, "DETERMINISTIC_EVALUATORS", [_AsyncLoggingEvaluator()])
+    monkeypatch.setattr(runs, "ALL_EVALUATORS", [_AsyncLoggingEvaluator()])
     monkeypatch.setattr(runs, "get_judge_settings", _configured_judge_settings)
 
     async def fail_persist_judge_call(*args: object, **kwargs: object) -> None:
@@ -403,7 +403,7 @@ async def test_run_failure_persistence_failure_leaves_judge_calls_committed(
 ) -> None:
     run_id = "phase6-run-failure-persist-failure-with-judge-call"
     await _create_run(session, "healthy_success", run_id)
-    monkeypatch.setattr(runs, "DETERMINISTIC_EVALUATORS", [_AsyncLoggingEvaluator()])
+    monkeypatch.setattr(runs, "ALL_EVALUATORS", [_AsyncLoggingEvaluator()])
     monkeypatch.setattr(runs, "get_judge_settings", _configured_judge_settings)
 
     async def fail_persist_run_failure(*args: object, **kwargs: object) -> None:
@@ -485,7 +485,7 @@ async def test_evaluate_pass_verdict_persists_run_failure_without_category(
     await _create_run(session, "healthy_success", run_id)
     monkeypatch.setattr(
         runs,
-        "DETERMINISTIC_EVALUATORS",
+        "ALL_EVALUATORS",
         [_FirstEvaluator(), _NotApplicableEvaluator()],
     )
 
@@ -516,7 +516,7 @@ async def test_evaluate_fail_verdict_wins_over_other_completed_outcomes(
     await _create_run(session, "healthy_success", run_id)
     monkeypatch.setattr(
         runs,
-        "DETERMINISTIC_EVALUATORS",
+        "ALL_EVALUATORS",
         [_FirstEvaluator(), _StructuredFailureEvaluator(), _NotApplicableEvaluator()],
     )
 
@@ -540,7 +540,7 @@ async def test_evaluate_incomplete_when_evaluator_fails_without_confirmed_failur
     await _create_run(session, "healthy_success", run_id)
     monkeypatch.setattr(
         runs,
-        "DETERMINISTIC_EVALUATORS",
+        "ALL_EVALUATORS",
         [_FirstEvaluator(), _ExplodingEvaluator(), _SecondEvaluator()],
     )
 
@@ -567,7 +567,7 @@ async def test_evaluate_fail_precedes_incomplete_when_failure_and_crash_occur(
     await _create_run(session, "healthy_success", run_id)
     monkeypatch.setattr(
         runs,
-        "DETERMINISTIC_EVALUATORS",
+        "ALL_EVALUATORS",
         [_ExplodingEvaluator(), _StructuredFailureEvaluator(), _SecondEvaluator()],
     )
 
@@ -592,7 +592,7 @@ async def test_evaluate_classifies_current_in_memory_evaluator_outcomes(
     await _create_run(session, "healthy_success", run_id)
     evaluators = [_FirstEvaluator(), _StructuredFailureEvaluator()]
     observed_outcomes = []
-    monkeypatch.setattr(runs, "DETERMINISTIC_EVALUATORS", evaluators)
+    monkeypatch.setattr(runs, "ALL_EVALUATORS", evaluators)
 
     original_classify = FailureClassifier.classify
 
@@ -625,7 +625,7 @@ async def test_run_failure_persistence_failure_leaves_evaluation_results_committ
 ) -> None:
     run_id = "phase5-run-failure-persist-failure"
     await _create_run(session, "healthy_success", run_id)
-    monkeypatch.setattr(runs, "DETERMINISTIC_EVALUATORS", [_FirstEvaluator()])
+    monkeypatch.setattr(runs, "ALL_EVALUATORS", [_FirstEvaluator()])
 
     async def fail_persist_run_failure(*args: object, **kwargs: object) -> None:
         raise RuntimeError("forced run failure persistence failure")

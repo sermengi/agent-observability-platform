@@ -3,7 +3,7 @@ from inspect import iscoroutinefunction
 
 from obs_platform.db.models import EvaluationResult as EvaluationResultRecord
 from obs_platform.evaluation.base import Evaluator
-from obs_platform.evaluation.registry import DETERMINISTIC_EVALUATORS
+from obs_platform.evaluation.registry import ALL_EVALUATORS
 from obs_platform.evaluation.types import (
     EvaluationFinding,
     EvaluationResult,
@@ -184,13 +184,13 @@ def test_evaluator_interface_uses_class_metadata_and_sync_evaluate() -> None:
 
 
 def test_registry_is_plain_static_list() -> None:
-    assert isinstance(DETERMINISTIC_EVALUATORS, list)
-    assert not hasattr(DETERMINISTIC_EVALUATORS, "register")
-    assert [evaluator.name for evaluator in DETERMINISTIC_EVALUATORS][-2:] == [
+    assert isinstance(ALL_EVALUATORS, list)
+    assert not hasattr(ALL_EVALUATORS, "register")
+    assert [evaluator.name for evaluator in ALL_EVALUATORS][-2:] == [
         "groundedness",
         "uncertainty",
     ]
-    assert [evaluator.type for evaluator in DETERMINISTIC_EVALUATORS][-2:] == [
+    assert [evaluator.type for evaluator in ALL_EVALUATORS][-2:] == [
         EvaluatorType.LLM_BASED,
         EvaluatorType.LLM_BASED,
     ]

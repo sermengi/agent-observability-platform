@@ -27,7 +27,7 @@ from obs_platform.db.models import AgentRun, LLMCall, RunFailure, Span, ToolCall
 from obs_platform.db.models import EvaluationResult as EvaluationResultRecord
 from obs_platform.evaluation.judges.client import create_judge_client
 from obs_platform.evaluation.persistence import persist_judge_call, persist_run_failure
-from obs_platform.evaluation.registry import DETERMINISTIC_EVALUATORS
+from obs_platform.evaluation.registry import ALL_EVALUATORS
 from obs_platform.evaluation.service import (
     RunNotFoundError,
     get_judge_settings,
@@ -122,7 +122,7 @@ async def evaluate_run(
         return await run_evaluation(
             session,
             run_id,
-            evaluators=DETERMINISTIC_EVALUATORS,
+            evaluators=ALL_EVALUATORS,
             judge_settings=get_judge_settings(),
             judge_client_factory=create_judge_client,
             persist_judge_call_fn=persist_judge_call,

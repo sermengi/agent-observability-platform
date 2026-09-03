@@ -9,7 +9,7 @@ from obs_platform.evaluation.evaluators import (
 from obs_platform.evaluation.judges.groundedness import GroundednessJudge
 from obs_platform.evaluation.judges.uncertainty import UncertaintyJudge
 
-DETERMINISTIC_EVALUATORS: list[Evaluator] = [
+ALL_EVALUATORS: list[Evaluator] = [
     ToolExecutionEvaluator(),
     StructuredOutputEvaluator(),
     TrajectoryEvaluator(),

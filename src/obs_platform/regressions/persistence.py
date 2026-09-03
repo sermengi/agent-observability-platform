@@ -2,7 +2,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from obs_platform.db.models import RegressionRun
 from obs_platform.evaluation.contracts import SCENARIO_CONTRACTS_VERSION
-from obs_platform.evaluation.registry import DETERMINISTIC_EVALUATORS
+from obs_platform.evaluation.registry import ALL_EVALUATORS
 
 
 async def create_regression_run(
@@ -25,7 +25,7 @@ async def create_regression_run(
         prompt_version=prompt_version,
         scenario_contract_version=SCENARIO_CONTRACTS_VERSION,
         evaluator_versions={
-            evaluator.name: evaluator.version for evaluator in DETERMINISTIC_EVALUATORS
+            evaluator.name: evaluator.version for evaluator in ALL_EVALUATORS
         },
         repetitions=repetitions,
         scenario_ids=scenario_ids,

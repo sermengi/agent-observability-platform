@@ -2,7 +2,7 @@ from datetime import UTC, datetime
 from typing import Any
 
 from obs_platform.evaluation.evaluators import StructuredOutputEvaluator
-from obs_platform.evaluation.registry import DETERMINISTIC_EVALUATORS
+from obs_platform.evaluation.registry import ALL_EVALUATORS
 from obs_platform.evaluation.types import EvaluationRunView, EvaluatorType
 
 
@@ -70,7 +70,7 @@ def test_structured_output_evaluator_metadata_and_registry_entry() -> None:
         registered.name == evaluator.name
         and registered.version == evaluator.version
         and registered.type is EvaluatorType.DETERMINISTIC
-        for registered in DETERMINISTIC_EVALUATORS
+        for registered in ALL_EVALUATORS
     )
 
 

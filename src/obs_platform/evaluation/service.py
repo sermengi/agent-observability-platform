@@ -24,7 +24,7 @@ from obs_platform.evaluation.persistence import (
     persist_judge_call,
     persist_run_failure,
 )
-from obs_platform.evaluation.registry import DETERMINISTIC_EVALUATORS
+from obs_platform.evaluation.registry import ALL_EVALUATORS
 from obs_platform.evaluation.types import (
     EvaluationFinding,
     EvaluationResult,
@@ -45,7 +45,7 @@ async def run_evaluation(
     session: AsyncSession,
     run_id: str,
     *,
-    evaluators: Sequence[Evaluator] = DETERMINISTIC_EVALUATORS,
+    evaluators: Sequence[Evaluator] = ALL_EVALUATORS,
     judge_settings: JudgeSettings | None = None,
     judge_client_factory: Callable[[JudgeSettings], JudgeClient] = create_judge_client,
     persist_judge_call_fn: Callable[..., Any] = persist_judge_call,

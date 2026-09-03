@@ -9,7 +9,7 @@ from obs_platform.config import DatabaseOnlySettings
 from obs_platform.database import create_engine
 from obs_platform.db.models import AgentRun, EvaluationResult, RegressionRun
 from obs_platform.evaluation.contracts import SCENARIO_CONTRACTS_VERSION
-from obs_platform.evaluation.registry import DETERMINISTIC_EVALUATORS
+from obs_platform.evaluation.registry import ALL_EVALUATORS
 from obs_platform.regressions.persistence import create_regression_run
 
 
@@ -44,7 +44,7 @@ async def test_create_regression_run_freezes_metadata_before_child_runs(
     assert record.prompt_version == "prompt-v1"
     assert record.scenario_contract_version == SCENARIO_CONTRACTS_VERSION
     assert record.evaluator_versions == {
-        evaluator.name: evaluator.version for evaluator in DETERMINISTIC_EVALUATORS
+        evaluator.name: evaluator.version for evaluator in ALL_EVALUATORS
     }
     assert len(record.evaluator_versions) == 7
     assert record.repetitions == 2
