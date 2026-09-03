@@ -13,8 +13,12 @@ from obs_platform.evaluation.types import EvaluationRunView
 from obs_platform.telemetry.v1 import ExtendedRunEvent, load_fixture
 
 
-def test_scenario_contracts_contains_exact_phase_4_entries() -> None:
-    assert set(SCENARIO_CONTRACTS) == {"GS-08", "GS-DEBUG-TRAJ-01"}
+def test_scenario_contracts_contains_exact_debug_and_gs08_entries() -> None:
+    assert set(SCENARIO_CONTRACTS) == {
+        "GS-08",
+        "GS-DEBUG-SMOKE-01",
+        "GS-DEBUG-TRAJ-01",
+    }
     assert set(SCENARIO_CONTRACTS) == set(CONTRACT_MANIFEST)
 
 
@@ -33,6 +37,20 @@ def test_scenario_input_round_trips_through_contract_loader() -> None:
     assert contract.scenario_input == {
         "query": "Draft a work order before checking PUMP-101 status."
     }
+
+
+def test_debug_smoke_contract_matches_healthy_success_fixture() -> None:
+    run = _view_from_event(load_fixture("healthy_success"))
+    run.scenario_id = "GS-DEBUG-SMOKE-01"
+    contract = SCENARIO_CONTRACTS["GS-DEBUG-SMOKE-01"]
+
+    assert contract.required_tools == [
+        "resolve_asset",
+        "get_asset_status",
+        "get_maintenance_history",
+    ]
+    assert TrajectoryEvaluator().evaluate(run).passed is True
+    assert EvidenceEvaluator().evaluate(run).passed is True
 
 
 def test_gs08_contract_passes_hitl_fixture_pair() -> None:

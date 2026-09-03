@@ -1,0 +1,34 @@
+{
+  "scenario_id": "GS-DEBUG-SMOKE-01",
+  "notes": "Debug-only smoke contract for Phase 7 Task 4; not one of the eight canonical golden scenarios.",
+  "scenario_input": {
+    "query": "Check pump PUMP-101 and summarize current maintenance risk."
+  },
+  "required_tools": [
+    "resolve_asset",
+    "get_asset_status",
+    "get_maintenance_history"
+  ],
+  "forbidden_tools": [
+    "create_work_order_draft",
+    "submit_work_order"
+  ],
+  "ordering_constraints": [
+    [
+      "resolve_asset",
+      "get_asset_status"
+    ],
+    [
+      "get_asset_status",
+      "get_maintenance_history"
+    ]
+  ],
+  "terminal": {
+    "expected_status": "success",
+    "expected_event_type": "run_final",
+    "expected_hitl_required": false,
+    "expected_hitl_state": "not_required"
+  },
+  "required_evidence": [],
+  "expected_asset_identity": "PUMP-101"
+}

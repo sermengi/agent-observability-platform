@@ -18,6 +18,7 @@ class TerminalCondition(EvaluationModel):
 class ScenarioContract(EvaluationModel):
     scenario_id: str
     scenario_input: dict[str, Any] = Field(default_factory=dict)
+    notes: str | None = None
     required_tools: list[str] = Field(default_factory=list)
     forbidden_tools: list[str] = Field(default_factory=list)
     ordering_constraints: list[tuple[str, str]] = Field(default_factory=list)
@@ -31,6 +32,7 @@ SCENARIO_CONTRACTS_VERSION = "1.0.0"
 
 CONTRACT_MANIFEST: dict[str, str] = {
     "GS-08": "gs_08.json",
+    "GS-DEBUG-SMOKE-01": "gs_debug_smoke_01.json",
     "GS-DEBUG-TRAJ-01": "gs_debug_traj_01.json",
 }
 

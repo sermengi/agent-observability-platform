@@ -5,6 +5,7 @@ from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from typing import Any
 
+from sqlalchemy import update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from obs_platform.db.models import RegressionRun
@@ -80,26 +81,29 @@ class RegressionRunner:
         if regression_run is None:
             raise ValueError(f"regression run {regression_run_id!r} does not exist")
 
-        await self._mark_running(regression_run)
+        run_id = regression_run.id
+        scenario_ids = list(regression_run.scenario_ids)
+        repetitions = regression_run.repetitions
+        await self._mark_running(run_id)
         created_run_ids: list[str] = []
         errors: list[RegressionRunError] = []
 
-        for scenario_id in regression_run.scenario_ids:
+        for scenario_id in scenario_ids:
             contract = load_scenario_contract(scenario_id)
-            for repetition_index in range(regression_run.repetitions):
+            for repetition_index in range(repetitions):
                 try:
-                    run_id = await self._run_one(
-                        regression_run.id,
+                    child_run_id = await self._run_one(
+                        run_id,
                         contract,
                         repetition_index,
                     )
-                    created_run_ids.append(run_id)
+                    created_run_ids.append(child_run_id)
                 except Exception as exc:
                     await self._session.rollback()
                     logger.exception(
                         "regression repetition failed",
                         extra={
-                            "regression_run_id": regression_run.id,
+                            "regression_run_id": run_id,
                             "scenario_id": scenario_id,
                             "repetition_index": repetition_index,
                         },
@@ -113,9 +117,9 @@ class RegressionRunner:
                         )
                     )
 
-        await self._mark_completed(regression_run)
+        await self._mark_completed(run_id)
         return RegressionRunnerResult(
-            regression_run_id=regression_run.id,
+            regression_run_id=run_id,
             created_run_ids=created_run_ids,
             errors=errors,
         )
@@ -127,7 +131,11 @@ class RegressionRunner:
         repetition_index: int,
     ) -> str:
         event = await self._target.run_scenario(contract)
-        run_id = _regression_run_event_id(contract.scenario_id, repetition_index)
+        run_id = _regression_run_event_id(
+            regression_run_id,
+            contract.scenario_id,
+            repetition_index,
+        )
         event = event.model_copy(
             deep=True,
             update={
@@ -145,17 +153,33 @@ class RegressionRunner:
         await self._run_evaluation(self._session, event.run_id)
         return event.run_id
 
-    async def _mark_running(self, regression_run: RegressionRun) -> None:
-        regression_run.status = "running"
-        regression_run.started_at = datetime.now(UTC)
-        regression_run.completed_at = None
+    async def _mark_running(self, regression_run_id: int) -> None:
+        await self._session.execute(
+            update(RegressionRun)
+            .where(RegressionRun.id == regression_run_id)
+            .values(
+                status="running",
+                started_at=datetime.now(UTC),
+                completed_at=None,
+            )
+        )
         await self._session.commit()
 
-    async def _mark_completed(self, regression_run: RegressionRun) -> None:
-        regression_run.status = "completed"
-        regression_run.completed_at = datetime.now(UTC)
+    async def _mark_completed(self, regression_run_id: int) -> None:
+        await self._session.execute(
+            update(RegressionRun)
+            .where(RegressionRun.id == regression_run_id)
+            .values(
+                status="completed",
+                completed_at=datetime.now(UTC),
+            )
+        )
         await self._session.commit()
 
 
-def _regression_run_event_id(scenario_id: str, repetition_index: int) -> str:
-    return f"phase7-{scenario_id}-rep-{repetition_index}"
+def _regression_run_event_id(
+    regression_run_id: int,
+    scenario_id: str,
+    repetition_index: int,
+) -> str:
+    return f"phase7-regression-{regression_run_id}-{scenario_id}-rep-{repetition_index}"
