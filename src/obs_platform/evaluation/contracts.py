@@ -25,6 +25,9 @@ class ScenarioContract(EvaluationModel):
     expected_asset_identity: str | None = None
 
 
+SCENARIO_CONTRACTS_VERSION = "1.0.0"
+
+
 CONTRACT_MANIFEST: dict[str, str] = {
     "GS-08": "gs_08.json",
     "GS-DEBUG-TRAJ-01": "gs_debug_traj_01.json",

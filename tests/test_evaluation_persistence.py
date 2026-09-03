@@ -38,6 +38,9 @@ from obs_platform.evaluation.types import (
     OverallEvaluationStatus,
 )
 from obs_platform.ingestion.runs import ingest_run_event
+from obs_platform.regressions.persistence import (
+    create_regression_run as create_regression_run_record,
+)
 from obs_platform.telemetry.v1 import load_fixture
 
 
@@ -545,10 +548,15 @@ async def _create_run(session: AsyncSession, run_id: str) -> None:
 
 
 async def _create_regression_run(session: AsyncSession) -> RegressionRun:
-    record = RegressionRun(status="pending")
-    session.add(record)
-    await session.commit()
-    await session.refresh(record)
+    record = await create_regression_run_record(
+        session,
+        agent_version="agent-v1",
+        agent_model_provider="mock-provider",
+        agent_model_name="mock-model",
+        prompt_version="prompt-v1",
+        repetitions=1,
+        scenario_ids=["GS-08"],
+    )
     await session.commit()
     return record
 

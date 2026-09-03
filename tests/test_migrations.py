@@ -31,7 +31,7 @@ async def test_initial_migration_is_empty_domain_bootstrap() -> None:
         "migrations/versions/20260825_0001_initial_empty_bootstrap.py"
     )
 
-    assert len(migration_files) == 6
+    assert len(migration_files) == 7
     migration = initial_migration.read_text()
     assert "op.create_table" not in migration
     assert "op.drop_table" not in migration
@@ -165,6 +165,39 @@ async def test_regression_runs_and_linkage_metadata_are_defined() -> None:
 
     assert [column.name for column in regression_runs.primary_key] == ["id"]
     assert regression_runs.c.id.autoincrement is True
+    assert [column.name for column in regression_runs.c] == [
+        "id",
+        "name",
+        "agent_version",
+        "agent_model_provider",
+        "agent_model_name",
+        "prompt_version",
+        "scenario_contract_version",
+        "evaluator_versions",
+        "repetitions",
+        "scenario_ids",
+        "status",
+        "is_baseline",
+        "started_at",
+        "completed_at",
+    ]
+    assert regression_runs.c.name.nullable is True
+    assert regression_runs.c.agent_version.nullable is False
+    assert regression_runs.c.agent_model_provider.nullable is False
+    assert regression_runs.c.agent_model_name.nullable is False
+    assert regression_runs.c.prompt_version.nullable is False
+    assert regression_runs.c.scenario_contract_version.nullable is False
+    assert regression_runs.c.evaluator_versions.nullable is False
+    assert regression_runs.c.repetitions.nullable is False
+    assert regression_runs.c.scenario_ids.nullable is False
+    assert regression_runs.c.status.nullable is False
+    assert regression_runs.c.is_baseline.nullable is False
+    assert isinstance(regression_runs.c.evaluator_versions.type, JSONB)
+    assert isinstance(regression_runs.c.scenario_ids.type, JSONB)
+    assert any(
+        "status IN ('pending', 'running', 'completed', 'failed')" in expression
+        for expression in _check_constraint_sql(regression_runs)
+    )
     assert "regression_run_id" in table.c
     assert table.c.regression_run_id.nullable is True
     assert _foreign_key_constraints_for(table, ["regression_run_id"])
@@ -196,6 +229,30 @@ async def test_phase_7_regression_linkage_migration() -> None:
     assert "fk_agent_runs_regression_run_id" in migration
     assert "uq_agent_runs_regression_scenario_repetition" in migration
     assert "ix_agent_runs_regression_run_id" in migration
+
+
+async def test_phase_7_regression_run_metadata_migration() -> None:
+    migration = Path(
+        "migrations/versions/20260903_0007_add_regression_run_metadata.py"
+    ).read_text()
+
+    assert 'down_revision: str | Sequence[str] | None = "20260903_0006"' in migration
+    for column_name in {
+        "name",
+        "agent_version",
+        "agent_model_provider",
+        "agent_model_name",
+        "prompt_version",
+        "scenario_contract_version",
+        "evaluator_versions",
+        "repetitions",
+        "scenario_ids",
+        "is_baseline",
+    }:
+        assert f'"{column_name}"' in migration
+    assert "ck_regression_runs_status" in migration
+    assert "uq_regression_runs_baseline" in migration
+    assert 'postgresql_where=sa.text("is_baseline = true")' in migration
 
 
 async def test_check_constraints_cover_locked_vocabularies() -> None:
@@ -288,6 +345,7 @@ async def test_phase_2_jsonb_array_and_double_precision_columns() -> None:
     llm_calls = cast(Table, models.LLMCall.__table__)
     evaluation_results = cast(Table, models.EvaluationResult.__table__)
     judge_calls = cast(Table, models.JudgeCall.__table__)
+    regression_runs = cast(Table, models.RegressionRun.__table__)
 
     for column in [
         agent_runs.c.raw_input,
@@ -301,6 +359,8 @@ async def test_phase_2_jsonb_array_and_double_precision_columns() -> None:
         llm_calls.c.input_payload,
         llm_calls.c.output_payload,
         evaluation_results.c.findings,
+        regression_runs.c.evaluator_versions,
+        regression_runs.c.scenario_ids,
     ]:
         assert isinstance(column.type, JSONB)
 
@@ -439,6 +499,20 @@ async def test_phase_2_relational_policy_columns_are_not_jsonb() -> None:
             "succeeded",
             "created_at",
         ],
+        "regression_runs": [
+            "id",
+            "name",
+            "agent_version",
+            "agent_model_provider",
+            "agent_model_name",
+            "prompt_version",
+            "scenario_contract_version",
+            "repetitions",
+            "status",
+            "is_baseline",
+            "started_at",
+            "completed_at",
+        ],
     }
 
     for table_name, column_names in relational_columns.items():
@@ -469,6 +543,9 @@ async def test_phase_2_metadata_defines_minimal_indexes() -> None:
     assert _index_columns(cast(Table, models.EvaluationResult.__table__)) == {}
     assert _index_columns(cast(Table, models.RunFailure.__table__)) == {}
     assert _index_columns(cast(Table, models.JudgeCall.__table__)) == {}
+    assert _index_columns(cast(Table, models.RegressionRun.__table__)) == {
+        "uq_regression_runs_baseline": ["is_baseline"],
+    }
 
 
 def _has_unique_constraint(table: Table, column_names: list[str]) -> bool:

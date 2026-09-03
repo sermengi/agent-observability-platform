@@ -11,6 +11,7 @@ from sqlalchemy import (
     String,
     Text,
     UniqueConstraint,
+    text,
 )
 from sqlalchemy.dialects.postgresql import ARRAY, DOUBLE_PRECISION, JSONB
 from sqlalchemy.orm import Mapped, mapped_column
@@ -35,9 +36,35 @@ _OVERALL_EVALUATION_STATUSES = "'pass', 'fail', 'incomplete'"
 
 class RegressionRun(Base):
     __tablename__ = "regression_runs"
+    __table_args__ = (
+        CheckConstraint(
+            "status IN ('pending', 'running', 'completed', 'failed')",
+            name="ck_regression_runs_status",
+        ),
+        Index(
+            "uq_regression_runs_baseline",
+            "is_baseline",
+            unique=True,
+            postgresql_where=text("is_baseline = true"),
+        ),
+    )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    name: Mapped[str | None] = mapped_column(Text)
+    agent_version: Mapped[str] = mapped_column(Text, nullable=False)
+    agent_model_provider: Mapped[str] = mapped_column(Text, nullable=False)
+    agent_model_name: Mapped[str] = mapped_column(Text, nullable=False)
+    prompt_version: Mapped[str] = mapped_column(Text, nullable=False)
+    scenario_contract_version: Mapped[str] = mapped_column(Text, nullable=False)
+    evaluator_versions: Mapped[dict[str, str]] = mapped_column(JSONB, nullable=False)
+    repetitions: Mapped[int] = mapped_column(Integer, nullable=False)
+    scenario_ids: Mapped[list[str]] = mapped_column(JSONB, nullable=False)
     status: Mapped[str] = mapped_column(Text, nullable=False)
+    is_baseline: Mapped[bool] = mapped_column(
+        nullable=False,
+        default=False,
+        server_default="false",
+    )
     started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 

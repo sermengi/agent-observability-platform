@@ -258,8 +258,30 @@ async def _seed_regression_agent_runs(session: AsyncSession) -> None:
     await session.execute(
         text(
             """
-            INSERT INTO regression_runs (id, status)
-            VALUES (1, 'pending')
+            INSERT INTO regression_runs (
+                id,
+                agent_version,
+                agent_model_provider,
+                agent_model_name,
+                prompt_version,
+                scenario_contract_version,
+                evaluator_versions,
+                repetitions,
+                scenario_ids,
+                status
+            )
+            VALUES (
+                1,
+                'index-agent-v1',
+                'mock-provider',
+                'mock-model',
+                'prompt-v1',
+                '1.0.0',
+                '{}'::jsonb,
+                1,
+                '["GS-IDX"]'::jsonb,
+                'pending'
+            )
             ON CONFLICT (id) DO NOTHING
             """
         )
