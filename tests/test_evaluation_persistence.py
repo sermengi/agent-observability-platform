@@ -470,9 +470,7 @@ async def test_live_runs_keep_null_regression_linkage_and_do_not_conflict(
 
     rows = list(
         await session.scalars(
-            select(AgentRun).where(
-                AgentRun.run_id.in_([first_run_id, second_run_id])
-            )
+            select(AgentRun).where(AgentRun.run_id.in_([first_run_id, second_run_id]))
         )
     )
 

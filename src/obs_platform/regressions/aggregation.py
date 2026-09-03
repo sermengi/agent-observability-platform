@@ -117,7 +117,9 @@ async def _scenario_pass_rate_summaries(
     return [
         ScenarioPassRateSummary(
             scenario_id=scenario_id,
-            pass_rate=(summary := _pass_rate_summary_from_rows(status_counts)).pass_rate,
+            pass_rate=(
+                summary := _pass_rate_summary_from_rows(status_counts)
+            ).pass_rate,
             counts=summary.counts,
         )
         for scenario_id, status_counts in grouped.items()

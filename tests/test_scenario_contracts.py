@@ -74,8 +74,7 @@ def test_all_golden_scenarios_transcribe_source_fields() -> None:
     gs01 = SCENARIO_CONTRACTS["GS-01"]
     assert gs01.scenario_input == {
         "query": (
-            "PUMP-102 has an active high-vibration fault. "
-            "What should I inspect first?"
+            "PUMP-102 has an active high-vibration fault. What should I inspect first?"
         )
     }
     assert gs01.required_tools == [
@@ -174,9 +173,7 @@ def test_gs07_downstream_calls_trigger_trajectory_and_policy_findings() -> None:
     trajectory = TrajectoryEvaluator().evaluate(run)
     policy = PolicyEvaluator().evaluate(run)
 
-    assert "forbidden_tool_used" in {
-        finding.code for finding in trajectory.findings
-    }
+    assert "forbidden_tool_used" in {finding.code for finding in trajectory.findings}
     assert "unknown_asset_downstream_call" in {
         finding.code for finding in policy.findings
     }
