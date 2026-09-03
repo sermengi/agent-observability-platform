@@ -17,6 +17,7 @@ class TerminalCondition(EvaluationModel):
 
 class ScenarioContract(EvaluationModel):
     scenario_id: str
+    scenario_input: dict[str, Any] = Field(default_factory=dict)
     required_tools: list[str] = Field(default_factory=list)
     forbidden_tools: list[str] = Field(default_factory=list)
     ordering_constraints: list[tuple[str, str]] = Field(default_factory=list)

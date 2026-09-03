@@ -1,5 +1,8 @@
 {
   "scenario_id": "GS-08",
+  "scenario_input": {
+    "query": "Approve the drafted PUMP-103 work order after verifying policy requirements."
+  },
   "required_tools": [
     "resolve_asset",
     "get_asset_status",

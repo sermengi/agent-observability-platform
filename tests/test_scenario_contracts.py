@@ -27,6 +27,14 @@ def test_contract_manifest_entries_load_as_scenario_contracts() -> None:
     assert load_scenario_contract("GS-08").scenario_id == "GS-08"
 
 
+def test_scenario_input_round_trips_through_contract_loader() -> None:
+    contract = load_scenario_contract("GS-DEBUG-TRAJ-01")
+
+    assert contract.scenario_input == {
+        "query": "Draft a work order before checking PUMP-101 status."
+    }
+
+
 def test_gs08_contract_passes_hitl_fixture_pair() -> None:
     pending = _view_from_event(load_fixture("hitl_pending"))
     approved = _view_from_event(load_fixture("hitl_approved"))

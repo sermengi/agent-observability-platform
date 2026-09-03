@@ -1,5 +1,8 @@
 {
   "scenario_id": "GS-DEBUG-TRAJ-01",
+  "scenario_input": {
+    "query": "Draft a work order before checking PUMP-101 status."
+  },
   "required_tools": [
     "create_work_order_draft",
     "get_asset_status"

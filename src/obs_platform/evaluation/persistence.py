@@ -20,6 +20,7 @@ async def persist_evaluation_result(
     evaluator: Evaluator,
     status: EvaluatorExecutionStatus,
     result: EvaluationResult | None,
+    regression_run_id: int | None = None,
 ) -> EvaluationResultRecord:
     if status is not EvaluatorExecutionStatus.FAILED and result is None:
         raise ValueError("result is required unless status is failed")
@@ -33,7 +34,7 @@ async def persist_evaluation_result(
         run_id=run_id,
         evaluator_name=evaluator.name,
         evaluator_version=evaluator.version,
-        regression_run_id=None,
+        regression_run_id=regression_run_id,
         status=status.value,
         passed=(completed_result.passed if completed_result is not None else None),
         score=(completed_result.score if completed_result is not None else None),
