@@ -31,7 +31,7 @@ async def test_initial_migration_is_empty_domain_bootstrap() -> None:
         "migrations/versions/20260825_0001_initial_empty_bootstrap.py"
     )
 
-    assert len(migration_files) == 5
+    assert len(migration_files) == 6
     migration = initial_migration.read_text()
     assert "op.create_table" not in migration
     assert "op.drop_table" not in migration
@@ -115,6 +115,7 @@ async def test_database_metadata_defines_phase_2_core_tables() -> None:
         "evaluation_results",
         "run_failures",
         "judge_calls",
+        "regression_runs",
     }
     assert "hitl_state_transitions" not in Base.metadata.tables
     assert "human_approvals" not in Base.metadata.tables
@@ -157,18 +158,44 @@ async def test_phase_2_error_fields_are_flattened_columns() -> None:
         assert "error" not in table.c
 
 
-async def test_evaluation_results_regression_run_is_reserved_without_fk() -> None:
+async def test_regression_runs_and_linkage_metadata_are_defined() -> None:
+    regression_runs = cast(Table, models.RegressionRun.__table__)
+    agent_runs = cast(Table, models.AgentRun.__table__)
     table = cast(Table, models.EvaluationResult.__table__)
 
+    assert [column.name for column in regression_runs.primary_key] == ["id"]
+    assert regression_runs.c.id.autoincrement is True
     assert "regression_run_id" in table.c
     assert table.c.regression_run_id.nullable is True
-    assert not _foreign_key_constraints_for(table, ["regression_run_id"])
+    assert _foreign_key_constraints_for(table, ["regression_run_id"])
+    assert _foreign_key_constraints_for(agent_runs, ["regression_run_id"])
+    assert agent_runs.c.regression_run_id.nullable is True
+    assert agent_runs.c.repetition_index.nullable is True
+    assert _has_unique_constraint(
+        agent_runs,
+        ["regression_run_id", "scenario_id", "repetition_index"],
+    )
     assert not _has_unique_constraint(table, ["run_id", "evaluator_name"])
     assert _has_unique_constraint(
         table,
         ["run_id", "evaluator_name", "evaluator_version", "regression_run_id"],
     )
-    assert "regression_runs" not in Base.metadata.tables
+
+
+async def test_phase_7_regression_linkage_migration() -> None:
+    migration = Path(
+        "migrations/versions/20260903_0006_add_regression_run_linkage.py"
+    ).read_text()
+
+    assert 'down_revision: str | Sequence[str] | None = "20260901_0005"' in migration
+    assert '"regression_runs"' in migration
+    assert '"agent_runs"' in migration
+    assert '"regression_run_id"' in migration
+    assert '"repetition_index"' in migration
+    assert "fk_evaluation_results_regression_run_id" in migration
+    assert "fk_agent_runs_regression_run_id" in migration
+    assert "uq_agent_runs_regression_scenario_repetition" in migration
+    assert "ix_agent_runs_regression_run_id" in migration
 
 
 async def test_check_constraints_cover_locked_vocabularies() -> None:
@@ -298,6 +325,8 @@ async def test_phase_2_relational_policy_columns_are_not_jsonb() -> None:
             "environment",
             "normalized_input",
             "scenario_id",
+            "regression_run_id",
+            "repetition_index",
             "started_at",
             "completed_at",
             "status",
@@ -422,6 +451,7 @@ async def test_phase_2_metadata_defines_minimal_indexes() -> None:
     assert _index_columns(cast(Table, models.AgentRun.__table__)) == {
         "ix_agent_runs_status": ["status"],
         "ix_agent_runs_scenario_id": ["scenario_id"],
+        "ix_agent_runs_regression_run_id": ["regression_run_id"],
         "ix_agent_runs_agent_version": ["agent_version"],
         "ix_agent_runs_started_at": ["started_at"],
     }

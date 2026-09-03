@@ -33,6 +33,15 @@ _EVALUATOR_EXECUTION_STATUSES = "'pending', 'running', 'completed', 'failed', 's
 _OVERALL_EVALUATION_STATUSES = "'pass', 'fail', 'incomplete'"
 
 
+class RegressionRun(Base):
+    __tablename__ = "regression_runs"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    status: Mapped[str] = mapped_column(Text, nullable=False)
+    started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+
 class AgentRun(Base):
     __tablename__ = "agent_runs"
     __table_args__ = (
@@ -54,8 +63,15 @@ class AgentRun(Base):
         ),
         Index("ix_agent_runs_status", "status"),
         Index("ix_agent_runs_scenario_id", "scenario_id"),
+        Index("ix_agent_runs_regression_run_id", "regression_run_id"),
         Index("ix_agent_runs_agent_version", "agent_version"),
         Index("ix_agent_runs_started_at", "started_at"),
+        UniqueConstraint(
+            "regression_run_id",
+            "scenario_id",
+            "repetition_index",
+            name="uq_agent_runs_regression_scenario_repetition",
+        ),
     )
 
     run_id: Mapped[str] = mapped_column(String(256), primary_key=True)
@@ -68,6 +84,10 @@ class AgentRun(Base):
     raw_input: Mapped[Any] = mapped_column(JSONB, nullable=False)
     normalized_input: Mapped[str | None] = mapped_column(Text)
     scenario_id: Mapped[str | None] = mapped_column(Text)
+    regression_run_id: Mapped[int | None] = mapped_column(
+        ForeignKey("regression_runs.id"),
+    )
+    repetition_index: Mapped[int | None] = mapped_column(Integer)
     started_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         nullable=False,
@@ -274,7 +294,9 @@ class EvaluationResult(Base):
     )
     evaluator_name: Mapped[str] = mapped_column(Text, nullable=False)
     evaluator_version: Mapped[str] = mapped_column(Text, nullable=False)
-    regression_run_id: Mapped[int | None] = mapped_column(Integer)
+    regression_run_id: Mapped[int | None] = mapped_column(
+        ForeignKey("regression_runs.id"),
+    )
     status: Mapped[str] = mapped_column(Text, nullable=False)
     passed: Mapped[bool | None] = mapped_column()
     score: Mapped[float | None] = mapped_column(DOUBLE_PRECISION)

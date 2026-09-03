@@ -4,6 +4,7 @@ from typing import Any
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from obs_platform.db.models import AgentRun
 from obs_platform.db.models import EvaluationResult as EvaluationResultRecord
 from obs_platform.db.models import JudgeCall as JudgeCallRecord
 from obs_platform.db.models import RunFailure as RunFailureRecord
@@ -87,6 +88,26 @@ async def persist_run_failure(
     record = await session.get(RunFailureRecord, run_id, populate_existing=True)
     if record is None:
         raise RuntimeError("run failure upsert did not return a record")
+    return record
+
+
+async def persist_regression_linkage(
+    session: AsyncSession,
+    run_id: str,
+    regression_run_id: int,
+    scenario_id: str,
+    repetition_index: int,
+) -> AgentRun:
+    record = await session.get(AgentRun, run_id, populate_existing=True)
+    if record is None:
+        raise ValueError(f"run {run_id!r} does not exist")
+
+    record.regression_run_id = regression_run_id
+    record.scenario_id = scenario_id
+    record.repetition_index = repetition_index
+    record.updated_at = datetime.now(UTC)
+    await session.commit()
+    await session.refresh(record)
     return record
 
 

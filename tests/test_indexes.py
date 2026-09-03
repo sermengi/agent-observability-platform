@@ -83,6 +83,26 @@ async def test_runs_using_model_query_uses_llm_calls_model_index(
     await _delete_index_test_rows(session)
 
 
+async def test_runs_for_regression_query_uses_regression_run_index(
+    session: AsyncSession,
+) -> None:
+    await _seed_regression_agent_runs(session)
+
+    plan = await _explain(
+        session,
+        """
+        SELECT run_id
+        FROM agent_runs
+        WHERE regression_run_id = 1
+        """,
+    )
+
+    assert "ix_agent_runs_regression_run_id" in plan
+    assert "Seq Scan on agent_runs" not in plan
+
+    await _delete_index_test_rows(session)
+
+
 async def test_deferred_failure_and_evaluator_indexes_do_not_exist(
     session: AsyncSession,
 ) -> None:
@@ -233,6 +253,36 @@ async def _seed_llm_calls(session: AsyncSession) -> None:
     await session.commit()
 
 
+async def _seed_regression_agent_runs(session: AsyncSession) -> None:
+    await _seed_agent_runs(session)
+    await session.execute(
+        text(
+            """
+            INSERT INTO regression_runs (id, status)
+            VALUES (1, 'pending')
+            ON CONFLICT (id) DO NOTHING
+            """
+        )
+    )
+    await session.execute(
+        text(
+            """
+            UPDATE agent_runs
+            SET
+                regression_run_id = CASE WHEN run_id = 'idx-run-1' THEN 1 ELSE NULL END,
+                scenario_id = CASE
+                    WHEN run_id = 'idx-run-1' THEN 'GS-IDX'
+                    ELSE NULL
+                END,
+                repetition_index = CASE WHEN run_id = 'idx-run-1' THEN 0 ELSE NULL END
+            WHERE run_id LIKE 'idx-run-%'
+            """
+        )
+    )
+    await session.execute(text("ANALYZE agent_runs"))
+    await session.commit()
+
+
 async def _seed_spans(session: AsyncSession) -> None:
     await session.execute(
         text(
@@ -270,4 +320,5 @@ async def _delete_index_test_rows(session: AsyncSession) -> None:
     await session.execute(text("DELETE FROM tool_calls WHERE run_id LIKE 'idx-run-%'"))
     await session.execute(text("DELETE FROM spans WHERE run_id LIKE 'idx-run-%'"))
     await session.execute(text("DELETE FROM agent_runs WHERE run_id LIKE 'idx-run-%'"))
+    await session.execute(text("DELETE FROM regression_runs WHERE id = 1"))
     await session.commit()

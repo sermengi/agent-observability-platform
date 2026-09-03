@@ -10,7 +10,14 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from obs_platform.config import DatabaseOnlySettings
 from obs_platform.database import create_engine
-from obs_platform.db.models import AgentRun, JudgeCall, LLMCall, Span, ToolCall
+from obs_platform.db.models import (
+    AgentRun,
+    JudgeCall,
+    LLMCall,
+    RegressionRun,
+    Span,
+    ToolCall,
+)
 from obs_platform.db.models import EvaluationResult as EvaluationResultRecord
 from obs_platform.db.models import RunFailure as RunFailureRecord
 from obs_platform.evaluation.base import Evaluator
@@ -19,6 +26,7 @@ from obs_platform.evaluation.judges.client import JudgeCallResult
 from obs_platform.evaluation.persistence import (
     persist_evaluation_result,
     persist_judge_call,
+    persist_regression_linkage,
     persist_run_failure,
 )
 from obs_platform.evaluation.types import (
@@ -383,6 +391,96 @@ async def test_persist_judge_call_is_insert_only(
     await _delete_run(session, run_id)
 
 
+async def test_persist_regression_linkage_overwrites_event_scenario_id(
+    session: AsyncSession,
+) -> None:
+    run_id = "phase7-regression-linkage-overwrite"
+    await _delete_run(session, run_id)
+    regression_run = await _create_regression_run(session)
+    event = load_fixture("healthy_success")
+    event.run_id = run_id
+    event.scenario_id = "producer-supplied-scenario"
+    await ingest_run_event(session, event)
+
+    record = await persist_regression_linkage(
+        session,
+        run_id=run_id,
+        regression_run_id=regression_run.id,
+        scenario_id="orchestrator-dispatched-scenario",
+        repetition_index=0,
+    )
+
+    assert record.run_id == run_id
+    assert record.regression_run_id == regression_run.id
+    assert record.scenario_id == "orchestrator-dispatched-scenario"
+    assert record.repetition_index == 0
+
+    await _delete_run(session, run_id)
+    await _delete_regression_run(session, regression_run.id)
+
+
+async def test_duplicate_regression_scenario_repetition_linkage_is_rejected(
+    session: AsyncSession,
+) -> None:
+    first_run_id = "phase7-regression-linkage-duplicate-1"
+    second_run_id = "phase7-regression-linkage-duplicate-2"
+    await _delete_run(session, first_run_id)
+    await _delete_run(session, second_run_id)
+    regression_run = await _create_regression_run(session)
+    regression_run_id = regression_run.id
+    await _create_run(session, first_run_id)
+    await _create_run(session, second_run_id)
+
+    await persist_regression_linkage(
+        session,
+        run_id=first_run_id,
+        regression_run_id=regression_run_id,
+        scenario_id="GS-DUPLICATE",
+        repetition_index=0,
+    )
+
+    with pytest.raises(IntegrityError):
+        await persist_regression_linkage(
+            session,
+            run_id=second_run_id,
+            regression_run_id=regression_run_id,
+            scenario_id="GS-DUPLICATE",
+            repetition_index=0,
+        )
+    await session.rollback()
+
+    await _delete_run(session, first_run_id)
+    await _delete_run(session, second_run_id)
+    await _delete_regression_run(session, regression_run_id)
+
+
+async def test_live_runs_keep_null_regression_linkage_and_do_not_conflict(
+    session: AsyncSession,
+) -> None:
+    first_run_id = "phase7-live-null-linkage-1"
+    second_run_id = "phase7-live-null-linkage-2"
+    await _delete_run(session, first_run_id)
+    await _delete_run(session, second_run_id)
+
+    await _create_run(session, first_run_id)
+    await _create_run(session, second_run_id)
+
+    rows = list(
+        await session.scalars(
+            select(AgentRun).where(
+                AgentRun.run_id.in_([first_run_id, second_run_id])
+            )
+        )
+    )
+
+    assert len(rows) == 2
+    assert all(row.regression_run_id is None for row in rows)
+    assert all(row.repetition_index is None for row in rows)
+
+    await _delete_run(session, first_run_id)
+    await _delete_run(session, second_run_id)
+
+
 class _Evaluator(Evaluator):
     name = "test"
     version = "1.0.0"
@@ -446,6 +544,15 @@ async def _create_run(session: AsyncSession, run_id: str) -> None:
     await ingest_run_event(session, event)
 
 
+async def _create_regression_run(session: AsyncSession) -> RegressionRun:
+    record = RegressionRun(status="pending")
+    session.add(record)
+    await session.commit()
+    await session.refresh(record)
+    await session.commit()
+    return record
+
+
 async def _delete_run(session: AsyncSession, run_id: str) -> None:
     for model in cast(
         tuple[Any, ...],
@@ -460,6 +567,13 @@ async def _delete_run(session: AsyncSession, run_id: str) -> None:
         ),
     ):
         await session.execute(delete(model).where(model.run_id == run_id))
+    await session.commit()
+
+
+async def _delete_regression_run(session: AsyncSession, regression_run_id: int) -> None:
+    await session.execute(
+        delete(RegressionRun).where(RegressionRun.id == regression_run_id)
+    )
     await session.commit()
 
 
