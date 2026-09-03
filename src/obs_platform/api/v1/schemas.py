@@ -323,3 +323,75 @@ class FailureAnalyticsResponse(APIResponseModel):
     run_counts: FailureRunCounts
     by_failure_type: list[FailureTypeBreakdown]
     by_severity: list[FailureSeverityBreakdown]
+
+
+class RegressionCreateRequest(APIResponseModel):
+    name: str | None = None
+    agent_model_provider: str
+    agent_model_name: str
+    prompt_version: str
+    scenario_ids: list[str] | None = None
+    repetitions: int | None = Field(default=None, ge=1)
+    is_baseline: bool = False
+
+
+class RegressionSummary(APIResponseModel):
+    id: int
+    name: str | None
+    status: str
+    started_at: datetime | None
+    completed_at: datetime | None
+    is_baseline: bool
+    scenario_ids: list[str]
+    repetitions: int
+
+
+class RegressionPassRate(APIResponseModel):
+    pass_rate: float | None
+    counts: dict[str, int]
+
+
+class RegressionScenarioPassRate(RegressionPassRate):
+    scenario_id: str
+
+
+class RegressionEvaluatorPassRate(APIResponseModel):
+    evaluator_name: str
+    total_count: int
+    skipped_count: int
+    passed_count: int
+    pass_rate: float | None
+
+
+class RegressionAgentMetrics(APIResponseModel):
+    avg_latency_ms: float | None
+    p95_latency_ms: float | None
+    avg_tokens: float | None
+    avg_cost_usd: float | None
+
+
+class RegressionEvaluationMetrics(APIResponseModel):
+    total_tokens: int
+    avg_tokens: float | None
+    total_cost_usd: float
+    avg_cost_usd: float | None
+    avg_latency_ms: float | None
+
+
+class RegressionAggregationResponse(APIResponseModel):
+    overall: RegressionPassRate
+    by_scenario: list[RegressionScenarioPassRate]
+    by_evaluator: list[RegressionEvaluatorPassRate]
+    failure_distribution: list[tuple[str, int]]
+    agent: RegressionAgentMetrics
+    evaluation: RegressionEvaluationMetrics
+
+
+class RegressionDetailResponse(RegressionSummary):
+    agent_version: str
+    agent_model_provider: str
+    agent_model_name: str
+    prompt_version: str
+    scenario_contract_version: str
+    evaluator_versions: dict[str, str]
+    aggregation: RegressionAggregationResponse
