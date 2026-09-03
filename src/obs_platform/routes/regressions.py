@@ -1,4 +1,3 @@
-
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
 from sqlalchemy import exists, select
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker
@@ -7,6 +6,7 @@ from obs_platform.api.deps import get_session
 from obs_platform.api.v1.schemas import (
     RegressionAgentMetrics,
     RegressionAggregationResponse,
+    RegressionComparison,
     RegressionCreateRequest,
     RegressionDetailResponse,
     RegressionEvaluationMetrics,
@@ -80,6 +80,9 @@ async def get_regression(
     if record is None:
         raise HTTPException(status_code=404, detail="regression run not found")
     aggregation = await aggregate_regression_run(session, record.id)
+    baseline = await session.scalar(
+        select(RegressionRun).where(RegressionRun.is_baseline.is_(True))
+    )
     return RegressionDetailResponse(
         **_summary(record).model_dump(),
         agent_version=record.agent_version,
@@ -101,6 +104,11 @@ async def get_regression(
             failure_distribution=aggregation.failure_distribution,
             agent=RegressionAgentMetrics(**aggregation.agent.__dict__),
             evaluation=RegressionEvaluationMetrics(**aggregation.evaluation.__dict__),
+        ),
+        comparison=(
+            _comparison(record, baseline)
+            if baseline is not None and baseline.id != record.id
+            else None
         ),
     )
 
@@ -135,4 +143,26 @@ def _summary(record: RegressionRun) -> RegressionSummary:
         is_baseline=record.is_baseline,
         scenario_ids=record.scenario_ids,
         repetitions=record.repetitions,
+    )
+
+
+def _comparison(
+    record: RegressionRun,
+    baseline: RegressionRun,
+) -> RegressionComparison:
+    differences = []
+    if record.scenario_contract_version != baseline.scenario_contract_version:
+        differences.append("scenario_contract_version")
+    differences.extend(
+        evaluator_name
+        for evaluator_name in sorted(
+            set(record.evaluator_versions) | set(baseline.evaluator_versions)
+        )
+        if record.evaluator_versions.get(evaluator_name)
+        != baseline.evaluator_versions.get(evaluator_name)
+    )
+    return RegressionComparison(
+        baseline_id=baseline.id,
+        comparable=not differences,
+        differences=differences,
     )

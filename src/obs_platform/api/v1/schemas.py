@@ -401,6 +401,12 @@ class RegressionAggregationResponse(APIResponseModel):
     evaluation: RegressionEvaluationMetrics
 
 
+class RegressionComparison(APIResponseModel):
+    baseline_id: int
+    comparable: bool
+    differences: list[str]
+
+
 class RegressionDetailResponse(RegressionSummary):
     agent_version: str
     agent_model_provider: str
@@ -409,3 +415,4 @@ class RegressionDetailResponse(RegressionSummary):
     scenario_contract_version: str
     evaluator_versions: dict[str, str]
     aggregation: RegressionAggregationResponse
+    comparison: RegressionComparison | None

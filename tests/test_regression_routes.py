@@ -135,9 +135,109 @@ async def test_background_execution_continues_after_each_failed_repetition(
     await session.refresh(completed)
     assert completed.status == "completed"
     assert target.calls == ["GS-DEBUG-SMOKE-01", "GS-DEBUG-SMOKE-01"]
-    assert await session.scalar(
-        select(AgentRun).where(AgentRun.regression_run_id == regression.id)
-    ) is None
+    assert (
+        await session.scalar(
+            select(AgentRun).where(AgentRun.regression_run_id == regression.id)
+        )
+        is None
+    )
+
+
+async def test_regression_detail_reports_baseline_comparability(
+    session: AsyncSession,
+) -> None:
+    async def get_session() -> AsyncIterator[AsyncSession]:
+        yield session
+
+    baseline = await create_regression_run(
+        session,
+        name="task8 endpoint test",
+        agent_version="test",
+        agent_model_provider="mock",
+        agent_model_name="baseline-model",
+        prompt_version="v1",
+        scenario_ids=["GS-01"],
+        repetitions=1,
+        is_baseline=True,
+    )
+    comparable = await create_regression_run(
+        session,
+        name="task8 endpoint test",
+        agent_version="test",
+        agent_model_provider="mock",
+        agent_model_name="candidate-model",
+        prompt_version="v1",
+        scenario_ids=["GS-01"],
+        repetitions=1,
+    )
+    incompatible = await create_regression_run(
+        session,
+        name="task8 endpoint test",
+        agent_version="test",
+        agent_model_provider="mock",
+        agent_model_name="candidate-model",
+        prompt_version="v1",
+        scenario_ids=["GS-01"],
+        repetitions=1,
+    )
+    contract_incompatible = await create_regression_run(
+        session,
+        name="task8 endpoint test",
+        agent_version="test",
+        agent_model_provider="mock",
+        agent_model_name="candidate-model",
+        prompt_version="v1",
+        scenario_ids=["GS-01"],
+        repetitions=1,
+    )
+    incompatible.evaluator_versions = {
+        **incompatible.evaluator_versions,
+        "groundedness": "different-version",
+    }
+    contract_incompatible.scenario_contract_version = "different-version"
+    await session.commit()
+
+    app = create_app()
+    app.dependency_overrides[regressions.get_session] = get_session
+    async with AsyncClient(
+        transport=ASGITransport(app=app), base_url="http://testserver"
+    ) as client:
+        baseline_detail = await client.get(f"/v1/regressions/{baseline.id}")
+        comparable_detail = await client.get(f"/v1/regressions/{comparable.id}")
+        incompatible_detail = await client.get(f"/v1/regressions/{incompatible.id}")
+        contract_incompatible_detail = await client.get(
+            f"/v1/regressions/{contract_incompatible.id}"
+        )
+        listed = await client.get("/v1/regressions")
+
+        assert baseline_detail.status_code == 200
+        assert baseline_detail.json()["comparison"] is None
+        assert comparable_detail.status_code == 200
+        assert comparable_detail.json()["comparison"] == {
+            "baseline_id": baseline.id,
+            "comparable": True,
+            "differences": [],
+        }
+        assert incompatible_detail.status_code == 200
+        assert incompatible_detail.json()["comparison"] == {
+            "baseline_id": baseline.id,
+            "comparable": False,
+            "differences": ["groundedness"],
+        }
+        assert contract_incompatible_detail.status_code == 200
+        assert contract_incompatible_detail.json()["comparison"] == {
+            "baseline_id": baseline.id,
+            "comparable": False,
+            "differences": ["scenario_contract_version"],
+        }
+        assert listed.status_code == 200
+        assert all("comparison" not in item for item in listed.json())
+
+        baseline.is_baseline = False
+        await session.commit()
+        no_baseline_detail = await client.get(f"/v1/regressions/{comparable.id}")
+        assert no_baseline_detail.status_code == 200
+        assert no_baseline_detail.json()["comparison"] is None
 
 
 class FailingTarget(AgentTarget):
